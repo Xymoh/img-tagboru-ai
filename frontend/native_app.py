@@ -1,0 +1,578 @@
+from __future__ import annotations
+
+import io
+import sys
+import zipfile
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterable
+
+import pandas as pd
+from PIL import Image
+from PySide6 import QtCore, QtGui, QtWidgets
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from backend.tagger import get_tagger, predict_tags
+
+
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+
+
+@dataclass
+class ResultItem:
+    path: Path
+    image: Image.Image
+    frame: pd.DataFrame
+    caption: str
+
+
+def _split_tags(text: str) -> list[str]:
+    return [part.strip() for part in text.replace("\n", ",").split(",") if part.strip()]
+
+
+def _category_name(category: int) -> str:
+    return {0: "general", 4: "character", 9: "rating"}.get(category, f"category_{category}")
+
+
+def _frame_from_predictions(predictions) -> pd.DataFrame:
+    rows = []
+    for index, prediction in enumerate(predictions):
+        rows.append(
+            {
+                "include": True,
+                "rank": index + 1,
+                "tag": prediction.tag,
+                "confidence": round(prediction.confidence, 4),
+                "category": _category_name(prediction.category),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _apply_filters(frame: pd.DataFrame, blacklist: Iterable[str], whitelist: Iterable[str]) -> pd.DataFrame:
+    blacklist_set = {tag.strip().lower() for tag in blacklist if tag.strip()}
+    whitelist_set = {tag.strip().lower() for tag in whitelist if tag.strip()}
+
+    def keep_row(tag: str) -> bool:
+        normalized = str(tag).strip().lower()
+        if blacklist_set and normalized in blacklist_set:
+            return False
+        if whitelist_set and normalized not in whitelist_set:
+            return False
+        return True
+
+    result = frame.copy()
+    result["include"] = result["include"] & result["tag"].map(keep_row)
+    return result
+
+
+def _sort_frame(frame: pd.DataFrame, sort_mode: str) -> pd.DataFrame:
+    if frame.empty:
+        return frame.copy()
+    if sort_mode == "alphabetical":
+        return frame.sort_values(by=["tag", "confidence"], ascending=[True, False]).reset_index(drop=True)
+    if sort_mode == "confidence":
+        return frame.sort_values(by=["confidence", "tag"], ascending=[False, True]).reset_index(drop=True)
+    return frame.sort_values(by=["rank", "confidence"], ascending=[True, False]).reset_index(drop=True)
+
+
+def _frame_to_caption(frame: pd.DataFrame, include_scores: bool = False) -> str:
+    included = frame[frame["include"]].copy()
+    if included.empty:
+        return ""
+    included = included.sort_values(by=["rank", "confidence"], ascending=[True, False])
+    if include_scores:
+        return ", ".join(f"{row.tag}:{row.confidence:.3f}" for row in included.itertuples())
+    return ", ".join(included["tag"].tolist())
+
+
+def _export_zip(results: list[ResultItem]) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for result in results:
+            archive.writestr(f"{result.path.stem}.txt", result.caption.encode("utf-8"))
+    return buffer.getvalue()
+
+
+class MainWindow(QtWidgets.QMainWindow):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle("Img-Tagboru")
+        self.resize(1360, 900)
+
+        self.pending_paths: list[Path] = []
+        self.results: list[ResultItem] = []
+        self._active_result_index = -1
+        self._preview_image: Image.Image | None = None
+
+        root = QtWidgets.QWidget()
+        self.setCentralWidget(root)
+        main_layout = QtWidgets.QHBoxLayout(root)
+
+        # UI Styling Colors
+        self.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #555;
+                margin-top: 10px;
+                padding-top: 15px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 3px 0 3px;
+                color: #4da6ff;
+            }
+            QPushButton {
+                background-color: #2b2b2b;
+                color: #ffffff;
+                border: 1px solid #444;
+                padding: 5px;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #3b3b3b;
+                border: 1px solid #4da6ff;
+            }
+            QPushButton#tagBtn {
+                background-color: #0059b3;
+                font-weight: bold;
+            }
+            QPushButton#tagBtn:hover {
+                background-color: #0073e6;
+            }
+            QLabel#alertLabel {
+                color: #ff9933;
+                font-weight: bold;
+            }
+        """)
+
+        left_panel = QtWidgets.QVBoxLayout()
+        right_panel = QtWidgets.QVBoxLayout()
+        main_layout.addLayout(left_panel, 1)
+        main_layout.addLayout(right_panel, 2)
+
+        input_group = QtWidgets.QGroupBox("Input")
+        input_layout = QtWidgets.QVBoxLayout(input_group)
+        button_row = QtWidgets.QHBoxLayout()
+        self.open_images_btn = QtWidgets.QPushButton("Open Images")
+        self.open_images_btn.clicked.connect(self.open_images)
+        self.open_folder_btn = QtWidgets.QPushButton("Open Folder")
+        self.open_folder_btn.clicked.connect(self.open_folder)
+        self.tag_btn = QtWidgets.QPushButton("Tag Loaded Images")
+        self.tag_btn.setObjectName("tagBtn")
+        self.tag_btn.clicked.connect(self.process_pending)
+        button_row.addWidget(self.open_images_btn)
+        button_row.addWidget(self.open_folder_btn)
+        button_row.addWidget(self.tag_btn)
+        input_layout.addLayout(button_row)
+        self.pending_label = QtWidgets.QLabel("No images loaded.")
+        self.pending_label.setObjectName("alertLabel")
+        input_layout.addWidget(self.pending_label)
+        self.result_list = QtWidgets.QListWidget()
+        self.result_list.currentRowChanged.connect(self.show_result)
+        input_layout.addWidget(self.result_list)
+        left_panel.addWidget(input_group, 1)
+
+        preview_group = QtWidgets.QGroupBox("Preview")
+        preview_layout = QtWidgets.QVBoxLayout(preview_group)
+        self.image_label = QtWidgets.QLabel(alignment=QtCore.Qt.AlignCenter)
+        self.image_label.setMinimumHeight(320)
+        self.image_label.setStyleSheet("background: #111; border: 1px solid #333;")
+        preview_layout.addWidget(self.image_label)
+        left_panel.addWidget(preview_group, 2)
+
+        settings_group = QtWidgets.QGroupBox("Tagging Settings")
+        form = QtWidgets.QFormLayout(settings_group)
+        self.general_threshold = QtWidgets.QDoubleSpinBox()
+        self.general_threshold.setRange(0.0, 1.0)
+        self.general_threshold.setSingleStep(0.01)
+        self.general_threshold.setValue(0.60)
+
+        self.general_threshold.setStyleSheet("color: #66ff66; font-weight: bold;")
+
+        self.character_threshold = QtWidgets.QDoubleSpinBox()
+        self.character_threshold.setRange(0.0, 1.0)
+        self.character_threshold.setSingleStep(0.01)
+        self.character_threshold.setValue(0.85)
+        self.character_threshold.setStyleSheet("color: #ff66a3; font-weight: bold;")
+
+        self.max_tags = QtWidgets.QSpinBox()
+        self.max_tags.setRange(5, 200)
+        self.max_tags.setValue(40)
+        self.max_tags.setStyleSheet("color: #ffcc66; font-weight: bold;")
+
+        self.sort_mode = QtWidgets.QComboBox()
+        self.sort_mode.addItems(["confidence", "alphabetical", "manual rank"])
+
+        self.normalize_pixels = QtWidgets.QCheckBox("Normalize pixels to 0-1")
+        self.use_mcut = QtWidgets.QCheckBox("Use MCut thresholding")
+        self.include_scores = QtWidgets.QCheckBox("Show scores in caption")
+
+        self.general_enabled = QtWidgets.QCheckBox("General")
+        self.general_enabled.setChecked(True)
+        self.character_enabled = QtWidgets.QCheckBox("Character")
+        self.character_enabled.setChecked(True)
+
+        category_widget = QtWidgets.QWidget()
+        category_row = QtWidgets.QHBoxLayout(category_widget)
+        category_row.setContentsMargins(0, 0, 0, 0)
+        category_row.addWidget(self.general_enabled)
+        category_row.addWidget(self.character_enabled)
+        category_row.addStretch(1)
+
+        self.blacklist = QtWidgets.QPlainTextEdit()
+        self.blacklist.setPlaceholderText("tag1, tag2")
+        self.blacklist.setFixedHeight(52)
+
+        self.whitelist = QtWidgets.QPlainTextEdit()
+        self.whitelist.setPlaceholderText("tag1, tag2 (optional)")
+        self.whitelist.setFixedHeight(52)
+
+        form.addRow("General threshold", self.general_threshold)
+        form.addRow("Character threshold", self.character_threshold)
+        form.addRow("Max tags", self.max_tags)
+        form.addRow("Sort by", self.sort_mode)
+        form.addRow("Categories", category_widget)
+        form.addRow("Blacklist", self.blacklist)
+        form.addRow("Whitelist", self.whitelist)
+        form.addRow(self.normalize_pixels)
+        form.addRow(self.use_mcut)
+        form.addRow(self.include_scores)
+        right_panel.addWidget(settings_group)
+
+        self.table = QtWidgets.QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["Include", "Rank", "Tag", "Confidence", "Category"])
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.itemChanged.connect(self.on_table_changed)
+        right_panel.addWidget(self.table, 3)
+
+        caption_group = QtWidgets.QGroupBox("Caption")
+        caption_layout = QtWidgets.QVBoxLayout(caption_group)
+        self.caption_edit = QtWidgets.QPlainTextEdit()
+        self.caption_edit.setPlaceholderText("Selected tags will appear here.")
+        caption_layout.addWidget(self.caption_edit)
+
+        caption_buttons = QtWidgets.QHBoxLayout()
+        self.apply_caption_btn = QtWidgets.QPushButton("Apply Caption Text")
+        self.apply_caption_btn.clicked.connect(self.apply_caption_text)
+        self.export_btn = QtWidgets.QPushButton("Save Current TXT")
+        self.export_btn.clicked.connect(self.export_caption)
+        self.export_all_btn = QtWidgets.QPushButton("Save All TXT")
+        self.export_all_btn.clicked.connect(self.export_all_captions)
+        self.export_zip_btn = QtWidgets.QPushButton("Export ZIP")
+        self.export_zip_btn.clicked.connect(self.export_zip)
+        caption_buttons.addWidget(self.apply_caption_btn)
+        caption_buttons.addWidget(self.export_btn)
+        caption_buttons.addWidget(self.export_all_btn)
+        caption_buttons.addWidget(self.export_zip_btn)
+        caption_layout.addLayout(caption_buttons)
+        right_panel.addWidget(caption_group, 2)
+
+        self.statusbar = self.statusBar()
+        self.progress = QtWidgets.QProgressBar()
+        self.progress.setVisible(False)
+        self.progress.setMaximumWidth(220)
+        self.statusbar.addPermanentWidget(self.progress)
+
+        self._set_export_enabled(False)
+
+    def _set_export_enabled(self, enabled: bool) -> None:
+        self.export_btn.setEnabled(enabled)
+        self.export_all_btn.setEnabled(enabled)
+        self.export_zip_btn.setEnabled(enabled)
+
+    def _selected_categories(self) -> set[str]:
+        selected = set()
+        if self.general_enabled.isChecked():
+            selected.add("general")
+        if self.character_enabled.isChecked():
+            selected.add("character")
+        return selected
+
+    def _load_paths(self, paths: list[Path]) -> None:
+        self.pending_paths = [path for path in paths if path.suffix.lower() in IMAGE_EXTENSIONS]
+        self.pending_label.setText(f"Loaded {len(self.pending_paths)} image(s).")
+        self.tag_btn.setEnabled(bool(self.pending_paths))
+        # populate the left list so the user can preview any image before tagging
+        self.result_list.blockSignals(True)
+        self.result_list.clear()
+        for p in self.pending_paths:
+            self.result_list.addItem(p.name)
+        self.result_list.blockSignals(False)
+        if self.pending_paths:
+            # show first image preview immediately
+            self.result_list.setCurrentRow(0)
+            self._set_image(Image.open(self.pending_paths[0]).convert("RGB"))
+
+    def open_images(self) -> None:
+        paths, _ = QtWidgets.QFileDialog.getOpenFileNames(
+            self,
+            "Open images",
+            str(Path.cwd()),
+            "Images (*.png *.jpg *.jpeg *.webp *.bmp)",
+        )
+        if paths:
+            self._load_paths([Path(path) for path in paths])
+
+    def open_folder(self) -> None:
+        folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Open folder", str(Path.cwd()))
+        if not folder:
+            return
+        root = Path(folder)
+        paths = [path for path in sorted(root.rglob("*")) if path.suffix.lower() in IMAGE_EXTENSIONS]
+        self._load_paths(paths)
+
+    def _tag_image(self, image: Image.Image):
+        tagger = get_tagger()
+        return predict_tags(
+            tagger,
+            image,
+            general_threshold=self.general_threshold.value(),
+            character_threshold=self.character_threshold.value(),
+            normalize_pixels=self.normalize_pixels.isChecked(),
+            use_mcut=self.use_mcut.isChecked(),
+            limit=self.max_tags.value(),
+        )
+
+    def process_pending(self) -> None:
+        if not self.pending_paths:
+            return
+
+        self.results = []
+        self._active_result_index = -1
+        # keep the result_list (names) populated so previews remain selectable
+        self.table.blockSignals(True)
+        self.result_list.blockSignals(True)
+        self.progress.setVisible(True)
+        self.progress.setValue(0)
+        self.statusbar.showMessage("Tagging images...")
+
+        blacklist = _split_tags(self.blacklist.toPlainText())
+        whitelist = _split_tags(self.whitelist.toPlainText())
+        allowed_categories = self._selected_categories()
+
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        try:
+            total = len(self.pending_paths)
+            for index, path in enumerate(self.pending_paths, start=1):
+                image = Image.open(path).convert("RGB")
+                predictions = self._tag_image(image)
+                frame = _frame_from_predictions(predictions)
+                if not frame.empty:
+                    if allowed_categories:
+                        frame = frame[frame["category"].isin(allowed_categories)].copy()
+                    frame = _apply_filters(frame, blacklist, whitelist)
+                    frame = _sort_frame(frame, self.sort_mode.currentText())
+                caption = _frame_to_caption(frame, include_scores=self.include_scores.isChecked())
+                self.results.append(ResultItem(path=path, image=image, frame=frame, caption=caption))
+                # mark the existing list item as tagged (avoid duplicating entries)
+                try:
+                    item = self.result_list.item(index - 1)
+                    if item is not None:
+                        item.setText(path.name)
+                except Exception:
+                    pass
+                self.progress.setValue(int(index / max(1, total) * 100))
+                QtWidgets.QApplication.processEvents()
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+            self.progress.setVisible(False)
+            self.table.blockSignals(False)
+            self.result_list.blockSignals(False)
+
+        self._set_export_enabled(bool(self.results))
+        self.statusbar.showMessage(f"Tagged {len(self.results)} image(s).")
+        if self.results:
+            current_row = self.result_list.currentRow()
+            if current_row >= 0:
+                self.show_result(current_row)
+            else:
+                self.result_list.setCurrentRow(0)
+
+    def _current_index(self) -> int:
+        return self.result_list.currentRow()
+
+    def _current_result(self) -> ResultItem | None:
+        index = self._current_index()
+        if 0 <= index < len(self.results):
+            return self.results[index]
+        return None
+
+    def _sync_current_result(self) -> None:
+        result = self._current_result()
+        if result is None:
+            return
+        result.frame = self._table_to_frame()
+        result.caption = self.caption_edit.toPlainText().strip()
+
+    def show_result(self, index: int) -> None:
+        if not (0 <= index < len(self.results)):
+            # if index is within pending_paths, show the preview image
+            if 0 <= index < len(self.pending_paths):
+                self._active_result_index = -1
+                img = Image.open(self.pending_paths[index]).convert("RGB")
+                self._set_image(img)
+                self.table.setRowCount(0)
+                self.caption_edit.setPlainText("")
+            return
+
+        # save edits from previously active result (if any)
+        if 0 <= self._active_result_index < len(self.results) and self.table.rowCount() > 0:
+            previous_result = self.results[self._active_result_index]
+            previous_result.frame = self._table_to_frame()
+            previous_result.caption = self.caption_edit.toPlainText().strip()
+
+        result = self.results[index]
+        self._active_result_index = index
+        self._set_image(result.image)
+        self._frame_to_table(result.frame)
+        self.caption_edit.setPlainText(result.caption)
+
+    def _set_image(self, pil: Image.Image) -> None:
+        self._preview_image = pil
+        buf = io.BytesIO()
+        pil.save(buf, format="PNG")
+        pixmap = QtGui.QPixmap.fromImage(QtGui.QImage.fromData(buf.getvalue()))
+        self.image_label.setPixmap(
+            pixmap.scaled(
+                self.image_label.size(),
+                QtCore.Qt.KeepAspectRatio,
+                QtCore.Qt.SmoothTransformation,
+            )
+        )
+
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        if self._preview_image is not None:
+            self._set_image(self._preview_image)
+
+    def _frame_to_table(self, frame: pd.DataFrame) -> None:
+        self.table.blockSignals(True)
+        self.table.setRowCount(0)
+        for row_index, row in enumerate(frame.itertuples(index=False)):
+            self.table.insertRow(row_index)
+
+            include_item = QtWidgets.QTableWidgetItem()
+            include_item.setFlags(QtCore.Qt.ItemIsUserCheckable | QtCore.Qt.ItemIsEnabled)
+            include_item.setCheckState(QtCore.Qt.Checked if bool(row.include) else QtCore.Qt.Unchecked)
+            self.table.setItem(row_index, 0, include_item)
+
+            rank_item = QtWidgets.QTableWidgetItem(str(int(row.rank)))
+            rank_item.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsEditable)
+            self.table.setItem(row_index, 1, rank_item)
+
+            tag_item = QtWidgets.QTableWidgetItem(str(row.tag))
+            tag_item.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled)
+            self.table.setItem(row_index, 2, tag_item)
+
+            confidence_item = QtWidgets.QTableWidgetItem(f"{float(row.confidence):.4f}")
+            confidence_item.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled)
+            self.table.setItem(row_index, 3, confidence_item)
+
+            category_item = QtWidgets.QTableWidgetItem(str(row.category))
+            category_item.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled)
+            self.table.setItem(row_index, 4, category_item)
+        self.table.blockSignals(False)
+
+    def _table_to_frame(self) -> pd.DataFrame:
+        rows = []
+        for row_index in range(self.table.rowCount()):
+            include_item = self.table.item(row_index, 0)
+            rank_item = self.table.item(row_index, 1)
+            tag_item = self.table.item(row_index, 2)
+            confidence_item = self.table.item(row_index, 3)
+            category_item = self.table.item(row_index, 4)
+
+            rows.append(
+                {
+                    "include": include_item.checkState() == QtCore.Qt.Checked if include_item else False,
+                    "rank": int(rank_item.text()) if rank_item and rank_item.text().strip().isdigit() else row_index + 1,
+                    "tag": tag_item.text() if tag_item else "",
+                    "confidence": float(confidence_item.text()) if confidence_item else 0.0,
+                    "category": category_item.text() if category_item else "",
+                }
+            )
+        frame = pd.DataFrame(rows)
+        if not frame.empty:
+            frame = _sort_frame(frame, self.sort_mode.currentText())
+        return frame
+
+    def on_table_changed(self, *_args) -> None:
+        result = self._current_result()
+        if result is None:
+            return
+        result.frame = self._table_to_frame()
+        result.caption = _frame_to_caption(result.frame, include_scores=self.include_scores.isChecked())
+        self.caption_edit.blockSignals(True)
+        self.caption_edit.setPlainText(result.caption)
+        self.caption_edit.blockSignals(False)
+
+    def apply_caption_text(self) -> None:
+        result = self._current_result()
+        if result is None:
+            return
+        tags = _split_tags(self.caption_edit.toPlainText())
+        tag_order = {tag.lower(): index + 1 for index, tag in enumerate(tags)}
+        frame = result.frame.copy()
+        lower_tags = {tag.lower() for tag in tags}
+        frame["include"] = frame["tag"].astype(str).str.lower().isin(lower_tags)
+        frame["rank"] = [tag_order.get(str(tag).lower(), 9999) for tag in frame["tag"]]
+        frame = _sort_frame(frame, self.sort_mode.currentText())
+        result.frame = frame
+        result.caption = _frame_to_caption(frame, include_scores=self.include_scores.isChecked())
+        self._frame_to_table(frame)
+        self.caption_edit.setPlainText(result.caption)
+
+    def export_caption(self) -> None:
+        result = self._current_result()
+        if result is None:
+            return
+        self._sync_current_result()
+        default_path = str(result.path.with_suffix(".txt"))
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save caption", default_path, "Text (*.txt)")
+        if not path:
+            return
+        Path(path).write_text(result.caption, encoding="utf-8")
+        self.statusbar.showMessage(f"Saved caption to {path}")
+
+    def export_all_captions(self) -> None:
+        if not self.results:
+            return
+        self._sync_current_result()
+        folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Choose output folder", str(Path.cwd()))
+        if not folder:
+            return
+        output = Path(folder)
+        for result in self.results:
+            (output / f"{result.path.stem}.txt").write_text(result.caption, encoding="utf-8")
+        self.statusbar.showMessage(f"Saved {len(self.results)} caption files.")
+
+    def export_zip(self) -> None:
+        if not self.results:
+            return
+        self._sync_current_result()
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Save captions zip",
+            str(Path.cwd() / "captions.zip"),
+            "Zip (*.zip)",
+        )
+        if not path:
+            return
+        Path(path).write_bytes(_export_zip(self.results))
+        self.statusbar.showMessage(f"Saved zip to {path}")
+
+
+def main() -> None:
+    app = QtWidgets.QApplication([])
+    window = MainWindow()
+    window.show()
+    app.exec()
+
+
+if __name__ == "__main__":
+    main()

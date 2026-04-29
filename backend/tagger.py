@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import inspect
 import io
+import warnings
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -108,10 +109,24 @@ class AnimeTagger:
         model_path = _download_model_file(MODEL_FILE)
         tags_path = _download_model_file(TAGS_FILE)
         self.tags = _load_tags(tags_path)
-        self.session = ort.InferenceSession(str(model_path), providers=self._providers())
+        self.session = self._create_session(model_path)
         self.input_name = self.session.get_inputs()[0].name
         self.output_name = self.session.get_outputs()[0].name
         self.input_shape = self.session.get_inputs()[0].shape
+
+    def _create_session(self, model_path: Path) -> ort.InferenceSession:
+        providers = self._providers()
+        try:
+            return ort.InferenceSession(str(model_path), providers=providers)
+        except Exception as exc:
+            if providers == ["CPUExecutionProvider"]:
+                raise
+            warnings.warn(
+                f"Falling back to CPUExecutionProvider because CUDA initialization failed: {exc}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
 
     @staticmethod
     def _providers() -> list[str]:
@@ -171,10 +186,10 @@ class AnimeTagger:
         if use_mcut:
             general_values = np.array([prediction.confidence for prediction in general_candidates], dtype=np.float32)
             if general_values.size:
-                general_threshold = mcut_threshold(general_values)
+                general_threshold = max(general_threshold, mcut_threshold(general_values))
             character_values = np.array([prediction.confidence for prediction in character_candidates], dtype=np.float32)
             if character_values.size:
-                character_threshold = max(0.15, mcut_threshold(character_values))
+                character_threshold = max(character_threshold, mcut_threshold(character_values))
 
         for prediction in general_candidates:
             if prediction.confidence >= general_threshold:
