@@ -49,41 +49,6 @@ pip uninstall -y onnxruntime
 pip install onnxruntime-gpu
 ```
 
-6. Start the UI:
-
-```powershell
-streamlit run frontend/app.py
-```
-
-Optional: start the API server in another terminal.
-
-```powershell
-.\.venv\Scripts\python.exe -m uvicorn backend.api:app --host 127.0.0.1 --port 8000 --reload
-```
-
-If `uvicorn` is not recognized, use the venv Python module form above instead of the bare command.
-
-## Connect to a Vite app
-
-Your Vite frontend can talk to this app over the local API. Use `http://127.0.0.1:8000/tag` for single-image tagging and `http://127.0.0.1:8000/health` for a quick availability check.
-
-Because the API enables CORS for `http://localhost:5173` and `http://127.0.0.1:5173`, a local Vite dev server can fetch captions directly.
-
-Example fetch from Vite:
-
-```ts
-const formData = new FormData();
-formData.append('file', file);
-formData.append('threshold', '0.35');
-
-const response = await fetch('http://127.0.0.1:8000/tag', {
-	method: 'POST',
-	body: formData,
-});
-
-const result = await response.json();
-```
-
 ## Notes
 
 - The model downloads on first run and is cached locally.
