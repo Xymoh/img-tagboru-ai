@@ -49,6 +49,59 @@ pip uninstall -y onnxruntime
 pip install onnxruntime-gpu
 ```
 
+6. Start the UI:
+
+```powershell
+streamlit run frontend/app.py
+```
+
+Optional: start the API server in another terminal.
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn backend.api:app --host 127.0.0.1 --port 8000 --reload
+```
+
+If `uvicorn` is not recognized, use the venv Python module form above instead of the bare command.
+
+## Build a Windows exe
+
+This project can be packaged as a local Windows launcher exe that starts the Streamlit app on the user's machine.
+
+1. Install the dependencies in your virtual environment.
+2. Run the build script:
+
+```powershell
+.\build_exe.ps1
+```
+
+3. The packaged app will be written to `dist\img-tagger.exe`.
+
+Notes:
+
+- The exe is a local launcher for the Streamlit app, not a native desktop UI.
+- The first run still downloads the model files to the user's cache folder.
+- If Windows Defender or SmartScreen warns about the exe, that is normal for unsigned local builds.
+
+## Connect to a Vite app
+
+Your Vite frontend can talk to this app over the local API. Use `http://127.0.0.1:8000/tag` for single-image tagging and `http://127.0.0.1:8000/health` for a quick availability check.
+
+Because the API enables CORS for `http://localhost:5173` and `http://127.0.0.1:5173`, a local Vite dev server can fetch captions directly.
+
+Example fetch from Vite:
+
+```ts
+const formData = new FormData();
+formData.append('file', file);
+formData.append('threshold', '0.35');
+
+const response = await fetch('http://127.0.0.1:8000/tag', {
+	method: 'POST',
+	body: formData,
+});
+
+const result = await response.json();
+```
 ## Notes
 
 - The model downloads on first run and is cached locally.
