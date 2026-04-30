@@ -341,6 +341,25 @@ class MainWindow(QtWidgets.QMainWindow):
         req_layout.addWidget(req_text)
         desc_layout.addWidget(req_group)
 
+        # Model selection
+        model_group = QtWidgets.QGroupBox("Model Selection")
+        model_layout = QtWidgets.QVBoxLayout(model_group)
+        
+        model_label = QtWidgets.QLabel("Select LLM Model:")
+        model_label.setStyleSheet("color: #4da6ff; font-size: 9px;")
+        model_layout.addWidget(model_label)
+        
+        self.model_selector = QtWidgets.QComboBox()
+        self.model_selector.setStyleSheet("background-color: #1a1a1a; color: #ffffff;")
+        self.model_selector.addItem("(Loading models...)", None)
+        model_layout.addWidget(self.model_selector)
+        
+        refresh_models_btn = QtWidgets.QPushButton("Refresh Available Models")
+        refresh_models_btn.clicked.connect(self._refresh_available_models)
+        model_layout.addWidget(refresh_models_btn)
+        
+        desc_layout.addWidget(model_group)
+
         # Description input section
         input_desc_group = QtWidgets.QGroupBox("Description Input")
         input_desc_layout = QtWidgets.QVBoxLayout(input_desc_group)
@@ -965,6 +984,22 @@ class MainWindow(QtWidgets.QMainWindow):
         # Deprecated - PC requirements now shown prominently in Description Tagger tab
         pass
 
+    def _refresh_available_models(self) -> None:
+        """Refresh the list of available Ollama models."""
+        self.model_selector.blockSignals(True)
+        self.model_selector.clear()
+        try:
+            tagger = get_description_tagger()
+            if not tagger.check_connection():
+                self.model_selector.addItem("(Ollama not running)", None)
+            else:
+                for model in tagger.list_available_models():
+                    self.model_selector.addItem(model, model)
+        except:
+            self.model_selector.addItem("(error loading)", None)
+        finally:
+            self.model_selector.blockSignals(False)
+
     def _generate_tags_from_description(self) -> None:
         """Generate Danbooru tags from text description using Ollama."""
         description = self.description_input.toPlainText().strip()
@@ -978,6 +1013,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
         try:
             tagger = get_description_tagger()
+            selected_model = self.model_selector.currentData()
+            if not selected_model:
+                raise RuntimeError("No model selected. Refresh models or start Ollama.")
+
+            tagger = get_description_tagger(model=selected_model)
             self.statusbar.showMessage("Checking Ollama connection...")
             
             if not tagger.check_connection():

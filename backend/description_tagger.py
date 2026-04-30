@@ -57,7 +57,8 @@ Rules:
         """Get list of available local models."""
         try:
             response = self.client.list()
-            return [m.get("name", m.get("model", "")) for m in response.get("models", [])]
+            # Response.models is a list of Model objects with .model attribute
+            return [m.model for m in response.models]
         except Exception:
             return []
     
