@@ -49,20 +49,20 @@ class DescriptionTagger:
         self.system_prompt = self._build_system_prompt()
     
     def _load_known_tags(self) -> list[str]:
-        """Load tag vocabulary from the trained image tagger."""
+        """Load tag vocabulary from the trained image tagger as a set for fast lookup."""
         if not HAS_TAGGER:
-            return []
+            return set()
         
         try:
             from pathlib import Path
             tags_path = _download_model_file("selected_tags.csv")
             tag_records = _load_tags(tags_path)
-            tags = [record.name for record in tag_records]
+            tags = set(record.name for record in tag_records)
             print(f"Loaded {len(tags)} known tags from trained tagger")
             return tags
         except Exception as e:
             print(f"Warning: Could not load trained tagger tags: {e}")
-            return []
+            return set()
     
     def _build_system_prompt(self) -> str:
         """Build system prompt with real tags from the trained model."""
@@ -78,36 +78,22 @@ class DescriptionTagger:
         style_tags = sorted([t for t in self.known_tags if any(x in t for x in ['painting', 'detailed', 'quality', 'lighting', 'style', 'realistic', 'sketch', 'watercolor'])])[:12]
         
         prompt = f"""You are an expert AI art prompt generator trained on real image tagging data from a neural network tagger.
+Generate tags from description using this real trained vocabulary:
+You are an image tagging AI. Output 30+ tags for the description.
+Generate tags. Use these trained vocabulary examples:
+Generate 40-50 detailed image tags from description. Use real trained vocabulary.
 
-YOUR TASK: Generate accurate descriptive tags for image synthesis. ONLY output tags that are in the AVAILABLE TAGS list below.
+EXAMPLES OF TRAINED TAGS YOU CAN USE:
+{', '.join(character_tags[:12])} {', '.join(clothing_tags[:12])} {', '.join(setting_tags[:10])} {', '.join(action_tags[:10])}
 
-AVAILABLE TAGS YOU CAN USE (real tags from trained tagger):
-- Characters: {', '.join(character_tags[:10])} ... and {len(character_tags) - 10} more
-- Clothing: {', '.join(clothing_tags[:8])} ... and {len(clothing_tags) - 8} more  
-- Settings: {', '.join(setting_tags[:8])} ... and {len(setting_tags) - 8} more
-- Actions: {', '.join(action_tags[:8])} ... and {len(action_tags) - 8} more
-- Styles: {', '.join(style_tags[:8])} ... and {len(style_tags) - 8} more
+INSTRUCTION:
+- Generate 40-50 comma-separated tags (not 5, not 10 - aim for 40+)
+- Use tags similar to examples above
+- Format: tag1, tag2, tag3, ...
+- Output ONLY tags, no explanations
 
-CRITICAL RULES:
-1. ONLY use tags from the list above - do NOT invent new tags
-2. Map each description element to the closest matching tag
-3. Generate 15-30 tags if possible (more is better for image generation)
-4. Output as comma-separated list, lowercase with underscores
-5. Do NOT explain - just output the tags
-
-APPROACH:
-- Identify: character type, clothing, pose/action, setting, artistic style
-- Match each to available tags
-- Prefer specific over generic
-
-OUTPUT FORMAT: tag1, tag2, tag3, ... (ONLY tags, NO explanations)
-
-TEST EXAMPLES:
-Input: "a girl with long black hair sitting in a library"
-Output: 1girl, long_hair, black_hair, sitting, library, window, books, indoors, detailed, soft_lighting
-
-Input: "fantasy forest landscape with magical elements"  
-Output: landscape, forest, nature, scenery, detailed, clouds, trees, grass, outdoor, magical"""
+EXAMPLE OUTPUT (THIS FORMAT):
+1girl, long_hair, black_hair, blue_eyes, nun, habit, small_breasts, standing, indoors, church, detailed, beautiful, realistic, high_quality, masterpiece, and many more"""
         
         return prompt
     
@@ -223,7 +209,7 @@ Example output: 1girl, sitting, window, books, warm_lighting, cozy, detailed, so
                 prompt=description,
                 system=self.system_prompt,
                 options={
-                    "temperature": 0.5,
+                    "temperature": 0.7,
                     "top_p": 0.95,
                     "num_predict": 150,
                 },
@@ -254,8 +240,8 @@ Example output: 1girl, sitting, window, books, warm_lighting, cozy, detailed, so
             line = chunk.strip()
             if not line:
                 continue
-            # Remove common numbering/bullet patterns
-            line = re.sub(r"^[\d\-\*\.\)]+\s*", "", line)
+            # Remove numbered list markers like "1. ", "2) " but preserve tag numbers like "1girl"
+            line = re.sub(r"^[0-9]+[.)]\s*|^[\-\*]\s+", "", line)
             line = line.strip().strip(".")
             if not line or any(c in line for c in [":", "=", ">"]):
                 continue
