@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import io
+import re
 import sys
+import tempfile
+import urllib.request
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
+from urllib.parse import urljoin
+from uuid import uuid4
 
 import pandas as pd
 from PIL import Image
+from PIL import UnidentifiedImageError
 from PySide6 import QtCore, QtGui, QtWidgets
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -102,6 +108,7 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.setWindowTitle("Img-Tagboru")
         self.resize(1360, 900)
+        self.setAcceptDrops(True)
 
         self.pending_paths: list[Path] = []
         self.results: list[ResultItem] = []
@@ -169,6 +176,42 @@ class MainWindow(QtWidgets.QMainWindow):
         button_row.addWidget(self.open_folder_btn)
         button_row.addWidget(self.tag_btn)
         input_layout.addLayout(button_row)
+
+        # Drop zone indicator
+        drop_zone_container = QtWidgets.QVBoxLayout()
+        drop_zone_icon = QtWidgets.QLabel("📁\n⬇️\n🖼️")
+        drop_zone_icon.setAlignment(QtCore.Qt.AlignCenter)
+        drop_zone_icon.setStyleSheet("font-size: 32px; color: #4da6ff; margin: 10px;")
+        drop_zone_container.addWidget(drop_zone_icon)
+
+        drop_zone_text = QtWidgets.QLabel("Drag & Drop Zone")
+        drop_zone_text.setAlignment(QtCore.Qt.AlignCenter)
+        drop_zone_text.setStyleSheet("font-weight: bold; color: #4da6ff; font-size: 12px;")
+        drop_zone_container.addWidget(drop_zone_text)
+
+        hint_text = QtWidgets.QLabel(
+            "• Drag local files/folders\n"
+            "• Drag images from websites\n"
+            "• Paste with Ctrl+V"
+        )
+        hint_text.setAlignment(QtCore.Qt.AlignCenter)
+        hint_text.setWordWrap(True)
+        hint_text.setStyleSheet("color: #9ecbff; font-size: 10px;")
+        drop_zone_container.addWidget(hint_text)
+
+        drop_zone_frame = QtWidgets.QFrame()
+        drop_zone_frame.setLayout(drop_zone_container)
+        drop_zone_frame.setStyleSheet(
+            "QFrame { "
+            "border: 2px dashed #4da6ff; "
+            "border-radius: 8px; "
+            "background-color: #1a1a2e; "
+            "margin: 10px; "
+            "padding: 15px; "
+            "}"
+        )
+        input_layout.addWidget(drop_zone_frame)
+
         self.pending_label = QtWidgets.QLabel("No images loaded.")
         self.pending_label.setObjectName("alertLabel")
         input_layout.addWidget(self.pending_label)
@@ -294,7 +337,18 @@ class MainWindow(QtWidgets.QMainWindow):
         return selected
 
     def _load_paths(self, paths: list[Path]) -> None:
-        self.pending_paths = [path for path in paths if path.suffix.lower() in IMAGE_EXTENSIONS]
+        valid_paths: list[Path] = []
+        skipped = 0
+        for path in paths:
+            if path.suffix.lower() not in IMAGE_EXTENSIONS:
+                continue
+            image = self._open_image_safe(path)
+            if image is None:
+                skipped += 1
+                continue
+            valid_paths.append(path)
+
+        self.pending_paths = valid_paths
         self.pending_label.setText(f"Loaded {len(self.pending_paths)} image(s).")
         self.tag_btn.setEnabled(bool(self.pending_paths))
         # populate the left list so the user can preview any image before tagging
@@ -306,7 +360,17 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.pending_paths:
             # show first image preview immediately
             self.result_list.setCurrentRow(0)
-            self._set_image(Image.open(self.pending_paths[0]).convert("RGB"))
+            first_image = self._open_image_safe(self.pending_paths[0])
+            if first_image is not None:
+                self._set_image(first_image)
+        elif skipped:
+            self.statusbar.showMessage("No valid images found in drop/paste input.", 7000)
+
+    def _open_image_safe(self, path: Path) -> Image.Image | None:
+        try:
+            return Image.open(path).convert("RGB")
+        except (UnidentifiedImageError, OSError):
+            return None
 
     def open_images(self) -> None:
         paths, _ = QtWidgets.QFileDialog.getOpenFileNames(
@@ -317,6 +381,176 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         if paths:
             self._load_paths([Path(path) for path in paths])
+
+    def dragEnterEvent(self, event: QtGui.QDragEnterEvent) -> None:
+        mime_data = event.mimeData()
+        if (
+            mime_data.hasUrls()
+            or mime_data.hasImage()
+            or mime_data.hasHtml()
+            or mime_data.hasText()
+            or mime_data.hasFormat("application/octet-stream")
+        ):
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def _save_qimage_temp(self, image: QtGui.QImage, prefix: str) -> Path | None:
+        if image.isNull():
+            return None
+        temp_dir = Path(tempfile.gettempdir()) / "img-tagger-clipboard"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        temp_path = temp_dir / f"{prefix}_{uuid4().hex[:8]}.png"
+        if image.save(str(temp_path), "PNG"):
+            return temp_path
+        return None
+
+    def _download_web_image_to_temp(self, url: str) -> Path | None:
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+            )
+            with urllib.request.urlopen(req, timeout=15) as response:
+                content_type = (response.headers.get("Content-Type") or "").lower()
+                data = response.read()
+
+            # Many pages return HTML/redirect responses for drag URLs; reject non-image payloads.
+            if content_type and "image/" not in content_type:
+                return None
+
+            # Validate with PIL before accepting as a dropped image.
+            try:
+                Image.open(io.BytesIO(data)).verify()
+            except (UnidentifiedImageError, OSError):
+                return None
+
+            temp_dir = Path(tempfile.gettempdir()) / "img-tagger-web"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            temp_path = temp_dir / f"web_{uuid4().hex[:8]}.png"
+            temp_path.write_bytes(data)
+            return temp_path
+        except Exception:
+            return None
+
+    def _extract_web_image_candidates(self, mime_data: QtCore.QMimeData) -> list[str]:
+        candidates: list[str] = []
+
+        if mime_data.hasUrls():
+            for url in mime_data.urls():
+                if url.scheme() in ("http", "https"):
+                    candidates.append(url.toString())
+
+        if mime_data.hasHtml():
+            html = mime_data.html()
+            src_matches = re.findall(r'src=["\']([^"\']+)["\']', html, flags=re.IGNORECASE)
+            base_match = re.search(r'<base[^>]*href=["\']([^"\']+)["\']', html, flags=re.IGNORECASE)
+            base_url = base_match.group(1) if base_match else ""
+            for src in src_matches:
+                if src.startswith(("http://", "https://")):
+                    candidates.append(src)
+                elif base_url:
+                    candidates.append(urljoin(base_url, src))
+
+        if mime_data.hasText():
+            text = mime_data.text().strip()
+            if text.startswith(("http://", "https://")):
+                candidates.append(text)
+
+        # De-duplicate while preserving order.
+        unique: list[str] = []
+        seen = set()
+        for item in candidates:
+            if item not in seen:
+                seen.add(item)
+                unique.append(item)
+        return unique
+
+    def dropEvent(self, event: QtGui.QDropEvent) -> None:
+        mime_data = event.mimeData()
+
+        # 1) Local files/folders from Explorer.
+        if mime_data.hasUrls():
+            urls = mime_data.urls()
+            local_paths = [Path(url.toLocalFile()) for url in urls if url.isLocalFile()]
+            if local_paths:
+                files = []
+                for path in local_paths:
+                    if path.is_dir():
+                        files.extend([p for p in path.rglob("*") if p.suffix.lower() in IMAGE_EXTENSIONS])
+                    else:
+                        files.append(path)
+                        
+                if files:
+                    self._load_paths(files)
+                    self.statusbar.showMessage(f"Loaded {len(files)} dropped file(s).", 5000)
+                    event.acceptProposedAction()
+                    return
+
+        # 2) Web URLs from browsers (url/html/text).
+        for url in self._extract_web_image_candidates(mime_data):
+            downloaded = self._download_web_image_to_temp(url)
+            if downloaded and downloaded.suffix.lower() in IMAGE_EXTENSIONS | {".png"}:
+                self._load_paths([downloaded])
+                self.statusbar.showMessage("Loaded dropped image from web URL.", 5000)
+                event.acceptProposedAction()
+                return
+
+        # 3) Raw image payload dragged from browser content area.
+        if mime_data.hasImage():
+            image = QtGui.QImage(mime_data.imageData())
+            temp_path = self._save_qimage_temp(image, "dragged")
+            if temp_path is not None:
+                self._load_paths([temp_path])
+                self.statusbar.showMessage("Loaded dropped image data.", 5000)
+                event.acceptProposedAction()
+                return
+
+        self.statusbar.showMessage(
+            "Drop not recognized. Try dropping directly on the image, or copy image then press Ctrl+V.",
+            7000,
+        )
+
+        super().dropEvent(event)
+
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
+        if event.matches(QtGui.QKeySequence.StandardKey.Paste):
+            clipboard = QtWidgets.QApplication.clipboard()
+            mime_data = clipboard.mimeData()
+
+            # First try URLs (copying a file from Explorer)
+            if mime_data.hasUrls():
+                paths = [Path(url.toLocalFile()) for url in mime_data.urls() if url.isLocalFile()]
+                if paths:
+                    self._load_paths(paths)
+                    self.statusbar.showMessage("Loaded pasted file path(s).", 5000)
+                    event.accept()
+                    return
+
+            # Next try URLs copied from browser.
+            for url in self._extract_web_image_candidates(mime_data):
+                downloaded = self._download_web_image_to_temp(url)
+                if downloaded is not None:
+                    self._load_paths([downloaded])
+                    self.statusbar.showMessage("Loaded pasted web image URL.", 5000)
+                    event.accept()
+                    return
+
+            # Next try an image from the clipboard (like copying from Snipping Tool or web browser)
+            image = clipboard.image()
+            temp_path = self._save_qimage_temp(image, "clipboard")
+            if temp_path is not None:
+                self._load_paths([temp_path])
+                self.statusbar.showMessage("Loaded pasted image data.", 5000)
+                event.accept()
+                return
+
+            self.statusbar.showMessage(
+                "Clipboard does not contain an image. Copy an image or an image URL and press Ctrl+V.",
+                7000,
+            )
+
+        super().keyPressEvent(event)
 
     def open_folder(self) -> None:
         folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Open folder", str(Path.cwd()))
@@ -359,7 +593,11 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             total = len(self.pending_paths)
             for index, path in enumerate(self.pending_paths, start=1):
-                image = Image.open(path).convert("RGB")
+                image = self._open_image_safe(path)
+                if image is None:
+                    self.progress.setValue(int(index / max(1, total) * 100))
+                    QtWidgets.QApplication.processEvents()
+                    continue
                 predictions = self._tag_image(image)
                 frame = _frame_from_predictions(predictions)
                 if not frame.empty:
@@ -414,8 +652,12 @@ class MainWindow(QtWidgets.QMainWindow):
             # if index is within pending_paths, show the preview image
             if 0 <= index < len(self.pending_paths):
                 self._active_result_index = -1
-                img = Image.open(self.pending_paths[index]).convert("RGB")
-                self._set_image(img)
+                img = self._open_image_safe(self.pending_paths[index])
+                if img is not None:
+                    self._set_image(img)
+                else:
+                    self.image_label.clear()
+                    self.statusbar.showMessage("Could not preview this image file.", 7000)
                 self.table.setRowCount(0)
                 self.caption_edit.setPlainText("")
             return
