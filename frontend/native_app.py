@@ -177,47 +177,24 @@ class MainWindow(QtWidgets.QMainWindow):
         button_row.addWidget(self.tag_btn)
         input_layout.addLayout(button_row)
 
-        # Drop zone indicator
-        drop_zone_container = QtWidgets.QVBoxLayout()
-        drop_zone_icon = QtWidgets.QLabel("📁\n⬇️\n🖼️")
-        drop_zone_icon.setAlignment(QtCore.Qt.AlignCenter)
-        drop_zone_icon.setStyleSheet("font-size: 32px; color: #4da6ff; margin: 10px;")
-        drop_zone_container.addWidget(drop_zone_icon)
+        # Compact drop zone hint
+        drop_hint = QtWidgets.QLabel("💡 Drag images/folders or press Ctrl+V to paste")
+        drop_hint.setAlignment(QtCore.Qt.AlignCenter)
+        drop_hint.setStyleSheet("color: #9ecbff; font-size: 9px; margin: 5px;")
+        input_layout.addWidget(drop_hint)
 
-        drop_zone_text = QtWidgets.QLabel("Drag & Drop Zone")
-        drop_zone_text.setAlignment(QtCore.Qt.AlignCenter)
-        drop_zone_text.setStyleSheet("font-weight: bold; color: #4da6ff; font-size: 12px;")
-        drop_zone_container.addWidget(drop_zone_text)
+        # Image list label
+        list_label = QtWidgets.QLabel("Loaded Images:")
+        list_label.setStyleSheet("color: #4da6ff; font-weight: bold; font-size: 10px;")
+        input_layout.addWidget(list_label)
 
-        hint_text = QtWidgets.QLabel(
-            "• Drag local files/folders\n"
-            "• Drag images from websites\n"
-            "• Paste with Ctrl+V"
-        )
-        hint_text.setAlignment(QtCore.Qt.AlignCenter)
-        hint_text.setWordWrap(True)
-        hint_text.setStyleSheet("color: #9ecbff; font-size: 10px;")
-        drop_zone_container.addWidget(hint_text)
-
-        drop_zone_frame = QtWidgets.QFrame()
-        drop_zone_frame.setLayout(drop_zone_container)
-        drop_zone_frame.setStyleSheet(
-            "QFrame { "
-            "border: 2px dashed #4da6ff; "
-            "border-radius: 8px; "
-            "background-color: #1a1a2e; "
-            "margin: 10px; "
-            "padding: 15px; "
-            "}"
-        )
-        input_layout.addWidget(drop_zone_frame)
+        self.result_list = QtWidgets.QListWidget()
+        self.result_list.currentRowChanged.connect(self.show_result)
+        input_layout.addWidget(self.result_list, 1)
 
         self.pending_label = QtWidgets.QLabel("No images loaded.")
         self.pending_label.setObjectName("alertLabel")
         input_layout.addWidget(self.pending_label)
-        self.result_list = QtWidgets.QListWidget()
-        self.result_list.currentRowChanged.connect(self.show_result)
-        input_layout.addWidget(self.result_list)
         left_panel.addWidget(input_group, 1)
 
         preview_group = QtWidgets.QGroupBox("Preview")
@@ -384,11 +361,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def dragEnterEvent(self, event: QtGui.QDragEnterEvent) -> None:
         mime_data = event.mimeData()
+        # Accept drops for: URLs, images, HTML, text, or any image MIME types
         if (
             mime_data.hasUrls()
             or mime_data.hasImage()
             or mime_data.hasHtml()
             or mime_data.hasText()
+            or any(fmt.startswith("image/") for fmt in mime_data.formats())
             or mime_data.hasFormat("application/octet-stream")
         ):
             event.acceptProposedAction()
@@ -487,7 +466,28 @@ class MainWindow(QtWidgets.QMainWindow):
                     event.acceptProposedAction()
                     return
 
-        # 2) Web URLs from browsers (url/html/text).
+        # 2) Try image MIME types first (image/png, image/jpeg, etc.)
+        image_formats = [fmt for fmt in mime_data.formats() if fmt.startswith("image/")]
+        if image_formats:
+            for fmt in image_formats:
+                image_bytes = mime_data.data(fmt)
+                if image_bytes and len(image_bytes) > 0:
+                    try:
+                        img = Image.open(io.BytesIO(image_bytes))
+                        if img.format and img.format.lower() in ('PNG', 'JPEG', 'WEBP', 'BMP', 'GIF'):
+                            temp_dir = Path(tempfile.gettempdir()) / "img-tagger-web"
+                            temp_dir.mkdir(parents=True, exist_ok=True)
+                            ext = img.format.lower() if img.format else 'png'
+                            temp_path = temp_dir / f"web_{uuid4().hex[:8]}.{ext}"
+                            img.save(str(temp_path))
+                            self._load_paths([temp_path])
+                            self.statusbar.showMessage("Loaded dropped image.", 5000)
+                            event.acceptProposedAction()
+                            return
+                    except Exception:
+                        continue
+
+        # 3) Web URLs from browsers (url/html/text).
         for url in self._extract_web_image_candidates(mime_data):
             downloaded = self._download_web_image_to_temp(url)
             if downloaded and downloaded.suffix.lower() in IMAGE_EXTENSIONS | {".png"}:
@@ -496,7 +496,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 event.acceptProposedAction()
                 return
 
-        # 3) Raw image payload dragged from browser content area.
+        # 4) Raw image payload dragged from browser content area.
         if mime_data.hasImage():
             image = QtGui.QImage(mime_data.imageData())
             temp_path = self._save_qimage_temp(image, "dragged")
@@ -507,7 +507,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 return
 
         self.statusbar.showMessage(
-            "Drop not recognized. Try dropping directly on the image, or copy image then press Ctrl+V.",
+            "Drop not recognized. Try: drag image file, drag from website, or Ctrl+V.",
             7000,
         )
 
