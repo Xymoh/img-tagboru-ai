@@ -378,6 +378,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.model_selector.setStyleSheet("background-color: #1a1a1a; color: #ffffff;")
         self.model_selector.addItem("(Loading models...)", None)
         model_layout.addWidget(self.model_selector)
+        self._refresh_available_models()
         
         refresh_models_btn = QtWidgets.QPushButton("Refresh Available Models")
         refresh_models_btn.clicked.connect(self._refresh_available_models)
@@ -1025,8 +1026,21 @@ class MainWindow(QtWidgets.QMainWindow):
             if not tagger.check_connection():
                 self.model_selector.addItem("(Ollama not running)", None)
             else:
-                for model in tagger.list_available_models():
+                models = tagger.list_available_models()
+                for model in models:
                     self.model_selector.addItem(model, model)
+                preferred_model = next(
+                    (
+                        model
+                        for model in models
+                        if "qwen3-14b" in model.lower() or "14b" in model.lower()
+                    ),
+                    models[0] if models else None,
+                )
+                if preferred_model:
+                    index = self.model_selector.findData(preferred_model)
+                    if index >= 0:
+                        self.model_selector.setCurrentIndex(index)
         except:
             self.model_selector.addItem("(error loading)", None)
         finally:
