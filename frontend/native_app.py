@@ -137,6 +137,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._active_result_index = -1
         self._preview_image: Image.Image | None = None
         self._tag_worker: DescriptionTagWorker | None = None
+        self._last_description_tags: list[str] = []
 
         root = QtWidgets.QWidget()
         self.setCentralWidget(root)
@@ -430,6 +431,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.desc_tags_display.setPlaceholderText("Generated tags will appear here after processing...")
         self.desc_tags_display.setStyleSheet("background-color: #1a1a1a; color: #66ff66; font-family: monospace;")
         tags_layout.addWidget(self.desc_tags_display)
+        
+        # Copy button for description tags
+        copy_tags_btn = QtWidgets.QPushButton("📋 Copy Tags (Comma-Separated)")
+        copy_tags_btn.setStyleSheet("background-color: #ff9933; color: white; font-weight: bold;")
+        copy_tags_btn.clicked.connect(self._copy_description_tags)
+        self._copy_tags_btn = copy_tags_btn
+        tags_layout.addWidget(copy_tags_btn)
         
         desc_layout.addWidget(tags_group)
         
@@ -1050,11 +1058,46 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_tags_generated(self, result: DescriptionTagResult) -> None:
         """Handle successful tag generation."""
-        tags_output = "\n".join(result.tags)
-        self.desc_tags_display.setPlainText(
-            f"✓ Generated {len(result.tags)} tags:\n\n{tags_output}"
-        )
-        self.statusbar.showMessage(f"✓ Generated {len(result.tags)} tags from description.", 5000)
+        # Store tags for copy button
+        self._last_description_tags = result.tags
+        
+        tags_output = ", ".join(result.tags)
+        
+        # Count raw generated tags to show user what was filtered
+        import re
+        raw_tags = [t.strip().lower() for t in re.split(r'[\n,\.]+', result.raw_response) if t.strip()]
+        raw_count = len(raw_tags)
+        valid_count = len(result.tags)
+        
+        if valid_count == 0:
+            # No valid tags passed filtering
+            display_text = (
+                "⚠️ WARNING: No valid Danbooru tags found\n\n"
+                f"The model generated {raw_count} tags but none matched the official Danbooru whitelist.\n\n"
+                "Try refining your description with:\n"
+                "• Specific traits (long_hair, blue_eyes, etc.)\n"
+                "• Clothing items (dress, shirt, bikini, etc.)\n"
+                "• Body descriptions (small_breasts, large_breasts, etc.)\n"
+                "• Poses (standing, sitting, lying_down)\n"
+                "• Settings (indoors, bedroom, outdoor)\n\n"
+                f"Raw output was: {', '.join(raw_tags[:10])}{'...' if raw_count > 10 else ''}"
+            )
+            self._copy_tags_btn.setEnabled(False)
+        elif raw_count > valid_count:
+            # Some tags were filtered
+            filtered_count = raw_count - valid_count
+            display_text = (
+                f"✓ Generated {valid_count} valid tags ({filtered_count} were filtered as invalid):\n\n"
+                f"{tags_output}"
+            )
+            self._copy_tags_btn.setEnabled(True)
+        else:
+            # All tags were valid
+            display_text = f"✓ Generated {valid_count} tags:\n\n{tags_output}"
+            self._copy_tags_btn.setEnabled(True)
+        
+        self.desc_tags_display.setPlainText(display_text)
+        self.statusbar.showMessage(f"✓ Generated {valid_count} valid tags from description.", 5000)
         self.generate_from_desc_btn.setEnabled(True)
         self._tag_worker = None
 
@@ -1063,7 +1106,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.desc_tags_display.setPlainText(f"⚠️ Error:\n\n{error_msg}")
         self.statusbar.showMessage("Tag generation failed.", 5000)
         self.generate_from_desc_btn.setEnabled(True)
+        self._copy_tags_btn.setEnabled(False)
         self._tag_worker = None
+
+    def _copy_description_tags(self) -> None:
+        """Copy generated description tags to clipboard as comma-separated list."""
+        if not hasattr(self, '_last_description_tags') or not self._last_description_tags:
+            self.statusbar.showMessage("No tags to copy.", 2000)
+            return
+        
+        tags_text = ", ".join(self._last_description_tags)
+        clipboard = QtWidgets.QApplication.clipboard()
+        clipboard.setText(tags_text)
+        self.statusbar.showMessage(f"✓ Copied {len(self._last_description_tags)} tags to clipboard", 3000)
 
     def export_caption(self) -> None:
         result = self._current_result()

@@ -29,30 +29,33 @@ class DescriptionTagger:
     DEFAULT_HOST = "http://localhost:11434"
     MAX_TAGS = 40
     
-    SYSTEM_PROMPT = """You are an expert Danbooru tagger.
+    SYSTEM_PROMPT = """You are an expert Danbooru tagger. Only use real, established Danbooru tags.
+
+VALID TAG PATTERNS (examples):
+- Character traits: 1girl, 2girls, 1boy, long_hair, black_hair, blue_eyes, blonde_hair, redhead
+- Body: breasts, small_breasts, large_breasts, nude, penis, cum, sex, anal, fellatio, missionary
+- Clothing: dress, skirt, shirt, bikini, thighhighs, stockings, gloves, hat, crown, maid_outfit
+- Settings: indoors, outdoors, bedroom, bathroom, beach, forest, garden, school
+- Pose/action: standing, sitting, lying_down, dancing, looking_at_viewer, smile, blush
+- Style: traditional_media, watercolor, oil_painting, sketch, monochrome, grayscale
+
+INVALID/NEVER USE (common mistakes):
+- Character: male, female (use 1girl, 1boy, 2girls, 2boys with numbers instead)
+- Generic: lewd, ecchi, anime, anime_style, style, pose, fantasy, character (too vague)
+- Made-up tags: dark_skinned, oekaki, small_tits (not real Danbooru tags)
+- Not standalone: interior, indoors_interior (use just "indoors")
 
 Task:
-Convert the user's description into precise real Danbooru-style tags.
+Convert the description into a comma-separated list of REAL Danbooru tags.
 
 Output format:
-- Return a single comma-separated list of tags
-- No numbering, no bullets, no code fences, no explanations
-- Use lowercase only
-- Use underscores for multi-word tags like black_hair or long_skirt
+- Single comma-separated list (no numbering, bullets, or explanations)
+- Lowercase only, underscores for multi-word tags
 - Return at most 40 tags
-- Prefer the most important tags first
+- Prefer most important visual facts first
 
-Tagging rules:
-- ONLY use real, established Danbooru tags - avoid inventing new tag names
-- Prefer concrete visual facts over vague adjectives
-- Include hair, eyes, clothing, pose, setting, species, and composition when present
-- Include relevant style or quality tags only when supported by the description
-- Include safety/content tags only when clearly implied by the description
-- Avoid duplicates, filler words, and paraphrases of the same concept
-- Aim for roughly 15-35 tags depending on how detailed the description is
-
-Example:
-girl, long_black_hair, red_eyes, maid_outfit, standing, indoors, looking_at_viewer"""
+Example input: "girl with long black hair sitting in a chair"
+Example output: 1girl, long_hair, black_hair, sitting, chair, indoors"""
     
     def __init__(self, host: str = DEFAULT_HOST, model: str = DEFAULT_MODEL) -> None:
         if ollama is None:
