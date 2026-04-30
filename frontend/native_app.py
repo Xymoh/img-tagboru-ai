@@ -23,6 +23,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.tagger import get_tagger, predict_tags
+from backend.description_tagger import get_description_tagger, DescriptionTagResult
 
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
@@ -177,6 +178,22 @@ class MainWindow(QtWidgets.QMainWindow):
         button_row.addWidget(self.open_folder_btn)
         button_row.addWidget(self.tag_btn)
         input_layout.addLayout(button_row)
+
+        # Description input section
+        desc_label = QtWidgets.QLabel("Or describe what you want:")
+        desc_label.setStyleSheet("color: #4da6ff; font-weight: bold; font-size: 9px; margin-top: 8px;")
+        input_layout.addWidget(desc_label)
+        
+        self.description_input = QtWidgets.QPlainTextEdit()
+        self.description_input.setPlaceholderText("e.g., 'girl with long black hair, red eyes, wearing maid outfit'")
+        self.description_input.setMaximumHeight(60)
+        self.description_input.setStyleSheet("background-color: #1a1a1a; color: #ffffff; border: 1px solid #444;")
+        input_layout.addWidget(self.description_input)
+        
+        self.generate_from_desc_btn = QtWidgets.QPushButton("Generate Tags from Description")
+        self.generate_from_desc_btn.setObjectName("tagBtn")
+        self.generate_from_desc_btn.clicked.connect(self._generate_tags_from_description)
+        input_layout.addWidget(self.generate_from_desc_btn)
 
         # Compact drop zone hint
         drop_hint = QtWidgets.QLabel("💡 Drag images/folders or press Ctrl+V to paste")
@@ -860,6 +877,121 @@ class MainWindow(QtWidgets.QMainWindow):
         result.caption = _frame_to_caption(frame, include_scores=self.include_scores.isChecked())
         self._frame_to_table(frame)
         self.caption_edit.setPlainText(result.caption)
+
+    def _show_pc_requirements_warning(self) -> None:
+        """Show information about PC requirements for running LLM models locally."""
+        msg = QtWidgets.QMessageBox(self)
+        msg.setWindowTitle("PC Requirements for Description-to-Tags")
+        msg.setIcon(QtWidgets.QMessageBox.Information)
+        msg.setText(
+            "<b>Local LLM Models - PC Requirements</b>\n\n"
+            "To use description-to-tags generation, you need:\n\n"
+            "1. <b>Ollama</b> running locally (download from ollama.ai)\n"
+            "   Run: <code>ollama serve</code>\n\n"
+            "2. <b>A local model</b> (7B-13B recommended):\n"
+            "   - Qwen2:7b (recommended, unrestricted)\n"
+            "   - Llama2:7b\n"
+            "   - Pull with: <code>ollama pull qwen2:7b</code>\n\n"
+            "3. <b>Minimum specs</b>:\n"
+            "   - RAM: 8-16 GB (more for larger models)\n"
+            "   - GPU: Optional but recommended (NVIDIA/AMD/Metal)\n"
+            "   - Disk: 10-20 GB for model storage\n\n"
+            "First inference takes ~30s-2min depending on hardware.\n"
+            "Subsequent requests are faster once model is loaded."
+        )
+        msg.exec()
+
+    def _generate_tags_from_description(self) -> None:
+        """Generate Danbooru tags from text description using Ollama."""
+        description = self.description_input.toPlainText().strip()
+        if not description:
+            self.statusbar.showMessage("Description is empty. Please enter a description.", 5000)
+            return
+
+        # Show PC requirements warning on first use
+        settings_key = "description_tagger_warned"
+        if not hasattr(self, settings_key):
+            self._show_pc_requirements_warning()
+            setattr(self, settings_key, True)
+
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        self.statusbar.showMessage("Connecting to Ollama and generating tags...")
+        self.generate_from_desc_btn.setEnabled(False)
+
+        try:
+            tagger = get_description_tagger()
+            self.statusbar.showMessage("Checking Ollama connection...")
+            
+            if not tagger.check_connection():
+                raise RuntimeError(
+                    "Cannot connect to Ollama at http://localhost:11434\n\n"
+                    "Please make sure Ollama is running:\n"
+                    "1. Download from ollama.ai\n"
+                    "2. Run: ollama serve\n"
+                    "3. In another terminal, pull a model: ollama pull qwen2:7b"
+                )
+
+            available_models = tagger.list_available_models()
+            if not available_models:
+                raise RuntimeError(
+                    "No models found in Ollama.\n\n"
+                    "Download one with:\n"
+                    "  ollama pull qwen2:7b"
+                )
+
+            self.statusbar.showMessage("Generating tags from description...")
+            result = tagger.generate_tags(description)
+
+            # Convert tags to DataFrame format compatible with existing editor
+            rows = []
+            for idx, tag in enumerate(result.tags, start=1):
+                rows.append({
+                    "include": True,
+                    "rank": idx,
+                    "tag": tag,
+                    "confidence": 0.95,  # High confidence since user-specified
+                    "category": "general",  # Default category
+                })
+            
+            frame = pd.DataFrame(rows)
+            if not frame.empty:
+                blacklist = _split_tags(self.blacklist.toPlainText())
+                whitelist = _split_tags(self.whitelist.toPlainText())
+                frame = _apply_filters(frame, blacklist, whitelist)
+                frame = _sort_frame(frame, self.sort_mode.currentText())
+
+            caption = _frame_to_caption(frame)
+            
+            # Create a result item for the generated tags
+            self.results = [ResultItem(
+                path=Path("(generated from description)"),
+                image=Image.new("RGB", (1, 1)),  # Dummy image
+                frame=frame,
+                caption=caption,
+            )]
+            self._active_result_index = 0
+            self._set_export_enabled(True)
+            
+            # Display the tags in the editor
+            self.result_list.blockSignals(True)
+            self.result_list.clear()
+            self.result_list.addItem("Generated Tags")
+            self.result_list.blockSignals(False)
+            self.result_list.setCurrentRow(0)
+            
+            self._frame_to_table(frame)
+            self.caption_edit.setPlainText(caption)
+            self.statusbar.showMessage(f"Generated {len(result.tags)} tags from description.", 5000)
+
+        except RuntimeError as e:
+            QtWidgets.QMessageBox.critical(self, "Generation Failed", str(e))
+            self.statusbar.showMessage("Tag generation failed.", 5000)
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", f"Unexpected error: {e}")
+            self.statusbar.showMessage("Tag generation error.", 5000)
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+            self.generate_from_desc_btn.setEnabled(True)
 
     def export_caption(self) -> None:
         result = self._current_result()

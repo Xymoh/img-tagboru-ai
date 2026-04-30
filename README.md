@@ -10,6 +10,41 @@ Local anime image captioning tool inspired by WD14 / OneTrainer workflows.
 - Exports one `.txt` caption file per image.
 - Supports batch processing from a local folder.
 - Runs locally on Windows and uses GPU automatically if `onnxruntime-gpu` is installed and CUDA is available.
+- **NEW:** Generate Danbooru tags from text descriptions using local LLM (Ollama) — no restricted keywords, fully unrestricted.
+
+## Features
+
+### Image-to-Tags
+- Load images via file picker, folder, drag-and-drop, or paste from clipboard
+- ONNX-based WD-SwinV2 tagger with category-specific confidence thresholds
+- MCut thresholding for automatic cutoff detection
+- Tag filtering (blacklist/whitelist)
+- Batch processing with progress tracking
+
+### Description-to-Tags (NEW)
+- Describe what you want to see on an image
+- AI generates corresponding Danbooru tags using a local LLM
+- No API calls, fully offline
+- Unrestricted tag generation (includes NSFW keywords when relevant)
+- Uses Ollama + Qwen (or Llama) running locally
+
+## PC Requirements for Description-to-Tags
+
+The description-to-tags feature requires a local LLM running via **Ollama**:
+
+**Minimum Hardware:**
+- **RAM:** 8 GB (16 GB recommended for better performance)
+- **CPU:** Modern multi-core processor
+- **GPU:** Optional but strongly recommended (NVIDIA/AMD/Intel with proper drivers)
+- **Disk:** 10-20 GB free for model storage
+
+**Setup:**
+1. Download and install **Ollama** from [ollama.ai](https://ollama.ai)
+2. Start Ollama: `ollama serve`
+3. In another terminal, pull a model: `ollama pull qwen2:7b` (recommended) or `ollama pull llama2`
+4. First inference takes 30s-2min depending on hardware; subsequent calls are faster
+
+**Note:** This feature is optional. Image-to-tags works without Ollama.
 
 ## Recommended stack
 
