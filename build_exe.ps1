@@ -14,8 +14,8 @@ if (-not (Test-Path $python)) {
     --clean `
     --name img-tagger `
     --onefile `
-    --console `
-    --collect-all streamlit `
+    --windowed `
+    --collect-all PySide6 `
     --add-data "frontend;frontend" `
     --add-data "backend;backend" `
-    launcher.py
+    frontend\native_app.py

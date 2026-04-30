@@ -8,3 +8,4 @@ numpy>=1.26
 pandas>=2.2
 python-multipart>=0.0.9
 pyinstaller>=6.0
+PySide6>=6.6

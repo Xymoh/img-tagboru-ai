@@ -14,15 +14,15 @@ Local anime image captioning tool inspired by WD14 / OneTrainer workflows.
 ## Recommended stack
 
 - Backend: Python + FastAPI + ONNX Runtime.
-- Frontend: Streamlit.
+- Frontend: PySide6.
 - Model: `SmilingWolf/wd-swinv2-tagger-v3` from Hugging Face.
 
-This repo includes a minimal working version that keeps the inference logic in a shared local service module. The FastAPI backend is available as an optional local API if you want to integrate another UI later.
+This repo includes a standalone desktop app that keeps the inference logic in a shared local service module. The FastAPI backend is available as an optional local API if you want to integrate another UI later.
 
 ## Project layout
 
 - `backend/` - tagger service and optional local API.
-- `frontend/` - Streamlit editor, preview, and export UI.
+- `frontend/` - PySide6 editor, preview, and export UI.
 - `requirements.txt` - Python dependencies.
 
 ## Setup on Windows
@@ -52,7 +52,7 @@ pip install onnxruntime-gpu
 6. Start the UI:
 
 ```powershell
-streamlit run frontend/app.py
+python frontend/native_app.py
 ```
 
 Optional: start the API server in another terminal.
@@ -65,7 +65,7 @@ If `uvicorn` is not recognized, use the venv Python module form above instead of
 
 ## Build a Windows exe
 
-This project can be packaged as a local Windows launcher exe that starts the Streamlit app on the user's machine.
+This project can be packaged as a standalone Windows desktop exe.
 
 1. Install the dependencies in your virtual environment.
 2. Run the build script:
@@ -78,7 +78,7 @@ This project can be packaged as a local Windows launcher exe that starts the Str
 
 Notes:
 
-- The exe is a local launcher for the Streamlit app, not a native desktop UI.
+- The exe launches the native PySide6 desktop app.
 - The first run still downloads the model files to the user's cache folder.
 - If Windows Defender or SmartScreen warns about the exe, that is normal for unsigned local builds.
 

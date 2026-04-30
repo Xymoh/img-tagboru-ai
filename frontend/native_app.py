@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import re
+import struct
 import sys
 import tempfile
 import urllib.request
@@ -165,7 +166,7 @@ class MainWindow(QtWidgets.QMainWindow):
         input_group = QtWidgets.QGroupBox("Input")
         input_layout = QtWidgets.QVBoxLayout(input_group)
         button_row = QtWidgets.QHBoxLayout()
-        self.open_images_btn = QtWidgets.QPushButton("Open Images")
+        self.open_images_btn = QtWidgets.QPushButton("Open Image")
         self.open_images_btn.clicked.connect(self.open_images)
         self.open_folder_btn = QtWidgets.QPushButton("Open Folder")
         self.open_folder_btn.clicked.connect(self.open_folder)
@@ -325,6 +326,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 continue
             valid_paths.append(path)
 
+        # Clear previous results and tags when loading new images
+        self.results = []
+        self._active_result_index = -1
+        self.table.setRowCount(0)
+        self.caption_edit.setPlainText("")
+        self._set_export_enabled(False)
+        
         self.pending_paths = valid_paths
         self.pending_label.setText(f"Loaded {len(self.pending_paths)} image(s).")
         self.tag_btn.setEnabled(bool(self.pending_paths))
@@ -335,11 +343,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.result_list.addItem(p.name)
         self.result_list.blockSignals(False)
         if self.pending_paths:
-            # show first image preview immediately
+            # show first image preview immediately with cleared tags
             self.result_list.setCurrentRow(0)
-            first_image = self._open_image_safe(self.pending_paths[0])
-            if first_image is not None:
-                self._set_image(first_image)
+            self.show_result(0)  # Explicitly show first pending image with cleared tags
         elif skipped:
             self.statusbar.showMessage("No valid images found in drop/paste input.", 7000)
 
@@ -352,7 +358,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def open_images(self) -> None:
         paths, _ = QtWidgets.QFileDialog.getOpenFileNames(
             self,
-            "Open images",
+            "Open Image",
             str(Path.cwd()),
             "Images (*.png *.jpg *.jpeg *.webp *.bmp)",
         )
@@ -386,30 +392,76 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _download_web_image_to_temp(self, url: str) -> Path | None:
         try:
-            req = urllib.request.Request(
-                url,
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
-            )
-            with urllib.request.urlopen(req, timeout=15) as response:
-                content_type = (response.headers.get("Content-Type") or "").lower()
-                data = response.read()
+            print(f"[DEBUG] Starting download of: {url}")
+            
+            # Try with increasingly realistic browser headers
+            headers_variants = [
+                # Full Chrome-like headers
+                {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Referer": "https://danbooru.donmai.us/",
+                    "Accept": "image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "Sec-Fetch-Dest": "image",
+                    "Sec-Fetch-Mode": "no-cors",
+                    "Sec-Fetch-Site": "same-site",
+                    "Cache-Control": "max-age=0",
+                },
+                # Minimal headers
+                {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                },
+                # No special headers
+                {},
+            ]
+            
+            for attempt, headers in enumerate(headers_variants):
+                try:
+                    print(f"[DEBUG] Attempt {attempt + 1} with headers: {list(headers.keys())}")
+                    req = urllib.request.Request(url, headers=headers)
+                    with urllib.request.urlopen(req, timeout=15) as response:
+                        content_type = (response.headers.get("Content-Type") or "").lower()
+                        data = response.read()
+                        print(f"[DEBUG] Downloaded {len(data)} bytes, Content-Type: {content_type}")
 
-            # Many pages return HTML/redirect responses for drag URLs; reject non-image payloads.
-            if content_type and "image/" not in content_type:
-                return None
+                        # Be lenient: accept image types, application/octet-stream, or if PIL can open it
+                        if content_type and content_type not in ("application/octet-stream", "") and "image/" not in content_type:
+                            print(f"[DEBUG] Rejected due to Content-Type: {content_type}")
+                            continue
 
-            # Validate with PIL before accepting as a dropped image.
-            try:
-                Image.open(io.BytesIO(data)).verify()
-            except (UnidentifiedImageError, OSError):
-                return None
+                        # Validate with PIL before accepting as a dropped image
+                        try:
+                            img = Image.open(io.BytesIO(data))
+                            img.load()  # Force load to validate
+                            print(f"[DEBUG] PIL validation successful, format: {img.format}")
+                        except (UnidentifiedImageError, OSError) as e:
+                            print(f"[DEBUG] PIL validation failed: {e}")
+                            continue
 
-            temp_dir = Path(tempfile.gettempdir()) / "img-tagger-web"
-            temp_dir.mkdir(parents=True, exist_ok=True)
-            temp_path = temp_dir / f"web_{uuid4().hex[:8]}.png"
-            temp_path.write_bytes(data)
-            return temp_path
-        except Exception:
+                        temp_dir = Path(tempfile.gettempdir()) / "img-tagger-web"
+                        temp_dir.mkdir(parents=True, exist_ok=True)
+                        # Use correct extension based on format or default to jpg
+                        ext = (img.format or "jpg").lower() if hasattr(img, 'format') else "jpg"
+                        ext = ext if ext in ("png", "jpeg", "jpg", "webp", "bmp", "gif") else "jpg"
+                        temp_path = temp_dir / f"web_{uuid4().hex[:8]}.{ext}"
+                        temp_path.write_bytes(data)
+                        print(f"[DEBUG] Saved to {temp_path}")
+                        return temp_path
+                except urllib.error.HTTPError as e:
+                    print(f"[DEBUG] HTTP Error {e.code} on attempt {attempt + 1}")
+                    if attempt == len(headers_variants) - 1:
+                        # Last attempt failed
+                        raise
+                    continue
+                except Exception as e:
+                    print(f"[DEBUG] Error on attempt {attempt + 1}: {e}")
+                    if attempt == len(headers_variants) - 1:
+                        raise
+                    continue
+
+        except Exception as e:
+            print(f"[DEBUG] Download failed with exception: {type(e).__name__}: {e}")
             return None
 
     def _extract_web_image_candidates(self, mime_data: QtCore.QMimeData) -> list[str]:
@@ -466,46 +518,86 @@ class MainWindow(QtWidgets.QMainWindow):
                     event.acceptProposedAction()
                     return
 
-        # 2) Try image MIME types first (image/png, image/jpeg, etc.)
-        image_formats = [fmt for fmt in mime_data.formats() if fmt.startswith("image/")]
-        if image_formats:
-            for fmt in image_formats:
+        # 2) Try Qt's native image support first (handles DragImageBits natively)
+        if mime_data.hasImage():
+            print(f"[DEBUG] Attempting to use Qt's native image support via hasImage()")
+            try:
+                image = QtGui.QImage(mime_data.imageData())
+                if not image.isNull():
+                    print(f"[DEBUG] Successfully got QImage from mime_data")
+                    temp_path = self._save_qimage_temp(image, "dragged")
+                    if temp_path is not None:
+                        print(f"[DEBUG] Saved QImage to {temp_path}")
+                        self._load_paths([temp_path])
+                        self.statusbar.showMessage("Loaded dropped image.", 5000)
+                        event.acceptProposedAction()
+                        return
+            except Exception as e:
+                print(f"[DEBUG] Qt image handling failed: {e}")
+
+        # 3) Try to extract raw image data from ANY available MIME type
+        print(f"[DEBUG] Available MIME formats: {mime_data.formats()}")
+        for fmt in mime_data.formats():
+            print(f"[DEBUG] Trying to extract image from format: {fmt}")
+            try:
                 image_bytes = mime_data.data(fmt)
-                if image_bytes and len(image_bytes) > 0:
-                    try:
-                        img = Image.open(io.BytesIO(image_bytes))
-                        if img.format and img.format.lower() in ('PNG', 'JPEG', 'WEBP', 'BMP', 'GIF'):
-                            temp_dir = Path(tempfile.gettempdir()) / "img-tagger-web"
-                            temp_dir.mkdir(parents=True, exist_ok=True)
-                            ext = img.format.lower() if img.format else 'png'
-                            temp_path = temp_dir / f"web_{uuid4().hex[:8]}.{ext}"
-                            img.save(str(temp_path))
+                if image_bytes and len(image_bytes) > 500:  # Real image data should be substantial
+                    print(f"[DEBUG] Found {len(image_bytes)} bytes in format {fmt}")
+                    
+                    # Try Qt's QImage.fromData() which auto-detects format
+                    print(f"[DEBUG] Attempting QImage.fromData() on {fmt}")
+                    qt_image = QtGui.QImage.fromData(image_bytes)
+                    if not qt_image.isNull():
+                        print(f"[DEBUG] QImage.fromData() succeeded for {fmt}")
+                        temp_path = self._save_qimage_temp(qt_image, "dragged")
+                        if temp_path is not None:
+                            print(f"[DEBUG] Saved QImage to {temp_path}")
                             self._load_paths([temp_path])
                             self.statusbar.showMessage("Loaded dropped image.", 5000)
                             event.acceptProposedAction()
                             return
-                    except Exception:
+                    
+                    # Standard PIL image format handling
+                    try:
+                        img = Image.open(io.BytesIO(image_bytes))
+                        img.load()  # Verify it's valid
+                        print(f"[DEBUG] Successfully parsed as {img.format}")
+                        
+                        temp_dir = Path(tempfile.gettempdir()) / "img-tagger-web"
+                        temp_dir.mkdir(parents=True, exist_ok=True)
+                        ext = (img.format or "jpg").lower() if hasattr(img, 'format') else "jpg"
+                        ext = ext if ext in ("png", "jpeg", "jpg", "webp", "bmp", "gif") else "jpg"
+                        temp_path = temp_dir / f"web_{uuid4().hex[:8]}.{ext}"
+                        temp_path.write_bytes(image_bytes)
+                        print(f"[DEBUG] Saved extracted image to {temp_path}")
+                        self._load_paths([temp_path])
+                        self.statusbar.showMessage("Loaded dropped image.", 5000)
+                        event.acceptProposedAction()
+                        return
+                    except Exception as e:
+                        print(f"[DEBUG] Failed to parse {fmt} as PIL image: {e}")
                         continue
+            except Exception as e:
+                print(f"[DEBUG] Error extracting {fmt}: {e}")
+                continue
 
-        # 3) Web URLs from browsers (url/html/text).
-        for url in self._extract_web_image_candidates(mime_data):
+        # 4) Web URLs from browsers (url/html/text).
+        candidates = list(self._extract_web_image_candidates(mime_data))
+        if candidates:
+            print(f"[DEBUG] Found web image candidates: {candidates}")
+        for url in candidates:
+            print(f"[DEBUG] Downloading web image from URL: {url}")
             downloaded = self._download_web_image_to_temp(url)
             if downloaded and downloaded.suffix.lower() in IMAGE_EXTENSIONS | {".png"}:
+                print(f"[DEBUG] Successfully downloaded to {downloaded}")
                 self._load_paths([downloaded])
                 self.statusbar.showMessage("Loaded dropped image from web URL.", 5000)
                 event.acceptProposedAction()
                 return
 
-        # 4) Raw image payload dragged from browser content area.
-        if mime_data.hasImage():
-            image = QtGui.QImage(mime_data.imageData())
-            temp_path = self._save_qimage_temp(image, "dragged")
-            if temp_path is not None:
-                self._load_paths([temp_path])
-                self.statusbar.showMessage("Loaded dropped image data.", 5000)
-                event.acceptProposedAction()
-                return
-
+        # Debug: Show what MIME types we got
+        all_formats = mime_data.formats()
+        print(f"[DEBUG] Drop not recognized. Available MIME types: {all_formats}")
         self.statusbar.showMessage(
             "Drop not recognized. Try: drag image file, drag from website, or Ctrl+V.",
             7000,
