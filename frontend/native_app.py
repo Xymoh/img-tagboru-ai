@@ -119,7 +119,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         root = QtWidgets.QWidget()
         self.setCentralWidget(root)
-        main_layout = QtWidgets.QHBoxLayout(root)
+        root_layout = QtWidgets.QVBoxLayout(root)
 
         # UI Styling Colors
         self.setStyleSheet("""
@@ -159,10 +159,18 @@ class MainWindow(QtWidgets.QMainWindow):
             }
         """)
 
+        # Create tab widget
+        self.tabs = QtWidgets.QTabWidget()
+        root_layout.addWidget(self.tabs)
+
+        # ===== TAB 1: Batch Tagger =====
+        batch_tab = QtWidgets.QWidget()
+        batch_layout = QtWidgets.QHBoxLayout(batch_tab)
+        
         left_panel = QtWidgets.QVBoxLayout()
         right_panel = QtWidgets.QVBoxLayout()
-        main_layout.addLayout(left_panel, 1)
-        main_layout.addLayout(right_panel, 2)
+        batch_layout.addLayout(left_panel, 1)
+        batch_layout.addLayout(right_panel, 2)
 
         input_group = QtWidgets.QGroupBox("Input")
         input_layout = QtWidgets.QVBoxLayout(input_group)
@@ -178,22 +186,6 @@ class MainWindow(QtWidgets.QMainWindow):
         button_row.addWidget(self.open_folder_btn)
         button_row.addWidget(self.tag_btn)
         input_layout.addLayout(button_row)
-
-        # Description input section
-        desc_label = QtWidgets.QLabel("Or describe what you want:")
-        desc_label.setStyleSheet("color: #4da6ff; font-weight: bold; font-size: 9px; margin-top: 8px;")
-        input_layout.addWidget(desc_label)
-        
-        self.description_input = QtWidgets.QPlainTextEdit()
-        self.description_input.setPlaceholderText("e.g., 'girl with long black hair, red eyes, wearing maid outfit'")
-        self.description_input.setMaximumHeight(60)
-        self.description_input.setStyleSheet("background-color: #1a1a1a; color: #ffffff; border: 1px solid #444;")
-        input_layout.addWidget(self.description_input)
-        
-        self.generate_from_desc_btn = QtWidgets.QPushButton("Generate Tags from Description")
-        self.generate_from_desc_btn.setObjectName("tagBtn")
-        self.generate_from_desc_btn.clicked.connect(self._generate_tags_from_description)
-        input_layout.addWidget(self.generate_from_desc_btn)
 
         # Compact drop zone hint
         drop_hint = QtWidgets.QLabel("💡 Drag images/folders or press Ctrl+V to paste")
@@ -309,6 +301,96 @@ class MainWindow(QtWidgets.QMainWindow):
         caption_buttons.addWidget(self.export_zip_btn)
         caption_layout.addLayout(caption_buttons)
         right_panel.addWidget(caption_group, 2)
+
+        self.tabs.addTab(batch_tab, "Batch Tagger")
+
+        # ===== TAB 2: Description Tagger =====
+        desc_tab = QtWidgets.QWidget()
+        desc_layout = QtWidgets.QVBoxLayout(desc_tab)
+
+        # PC Requirements (always visible)
+        req_group = QtWidgets.QGroupBox("📋 PC Requirements for Description-to-Tags")
+        req_group.setStyleSheet("""
+            QGroupBox {
+                border: 2px solid #ff9933;
+                background-color: #1a1a1a;
+                font-weight: bold;
+            }
+            QGroupBox::title {
+                color: #ff9933;
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 3px 0 3px;
+            }
+        """)
+        req_layout = QtWidgets.QVBoxLayout(req_group)
+        
+        req_text = QtWidgets.QLabel(
+            "🔹 Requires: Ollama (http://ollama.ai)\n"
+            "🔹 RAM: 8-16GB minimum (16GB+ recommended)\n"
+            "🔹 Disk: 10-20GB free space for model\n"
+            "🔹 GPU: Optional (NVIDIA/AMD accelerates generation)\n\n"
+            "Setup:\n"
+            "  1. Download and install Ollama\n"
+            "  2. Run in terminal: ollama serve\n"
+            "  3. In another terminal: ollama pull qwen2:7b\n"
+            "  4. Return here and generate tags!"
+        )
+        req_text.setWordWrap(True)
+        req_text.setStyleSheet("color: #ffcc66; font-family: monospace; font-size: 9px;")
+        req_layout.addWidget(req_text)
+        desc_layout.addWidget(req_group)
+
+        # Description input section
+        input_desc_group = QtWidgets.QGroupBox("Description Input")
+        input_desc_layout = QtWidgets.QVBoxLayout(input_desc_group)
+        
+        desc_hint = QtWidgets.QLabel("Describe what you want to see in the image:")
+        desc_hint.setStyleSheet("color: #4da6ff; font-size: 9px;")
+        input_desc_layout.addWidget(desc_hint)
+        
+        self.description_input = QtWidgets.QPlainTextEdit()
+        self.description_input.setPlaceholderText(
+            "Examples:\n"
+            "• girl with long black hair, red eyes, wearing maid outfit\n"
+            "• anime boy, blue eyes, blonde hair, holding sword\n"
+            "• landscape with mountains, sunset, fantasy art style"
+        )
+        self.description_input.setMinimumHeight(150)
+        self.description_input.setStyleSheet("background-color: #1a1a1a; color: #ffffff; border: 1px solid #444;")
+        input_desc_layout.addWidget(self.description_input)
+        
+        self.generate_from_desc_btn = QtWidgets.QPushButton("Generate Tags from Description")
+        self.generate_from_desc_btn.setObjectName("tagBtn")
+        self.generate_from_desc_btn.setMinimumHeight(40)
+        self.generate_from_desc_btn.setStyleSheet("""
+            QPushButton#tagBtn {
+                background-color: #0059b3;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton#tagBtn:hover {
+                background-color: #0073e6;
+            }
+        """)
+        self.generate_from_desc_btn.clicked.connect(self._generate_tags_from_description)
+        input_desc_layout.addWidget(self.generate_from_desc_btn)
+        
+        desc_layout.addWidget(input_desc_group)
+
+        # Generated tags display
+        tags_group = QtWidgets.QGroupBox("Generated Tags")
+        tags_layout = QtWidgets.QVBoxLayout(tags_group)
+        
+        self.desc_tags_display = QtWidgets.QPlainTextEdit()
+        self.desc_tags_display.setReadOnly(True)
+        self.desc_tags_display.setPlaceholderText("Generated tags will appear here after processing...")
+        self.desc_tags_display.setStyleSheet("background-color: #1a1a1a; color: #66ff66; font-family: monospace;")
+        tags_layout.addWidget(self.desc_tags_display)
+        
+        desc_layout.addWidget(tags_group)
+        
+        self.tabs.addTab(desc_tab, "Description Tagger")
 
         self.statusbar = self.statusBar()
         self.progress = QtWidgets.QProgressBar()
@@ -880,26 +962,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _show_pc_requirements_warning(self) -> None:
         """Show information about PC requirements for running LLM models locally."""
-        msg = QtWidgets.QMessageBox(self)
-        msg.setWindowTitle("PC Requirements for Description-to-Tags")
-        msg.setIcon(QtWidgets.QMessageBox.Information)
-        msg.setText(
-            "<b>Local LLM Models - PC Requirements</b>\n\n"
-            "To use description-to-tags generation, you need:\n\n"
-            "1. <b>Ollama</b> running locally (download from ollama.ai)\n"
-            "   Run: <code>ollama serve</code>\n\n"
-            "2. <b>A local model</b> (7B-13B recommended):\n"
-            "   - Qwen2:7b (recommended, unrestricted)\n"
-            "   - Llama2:7b\n"
-            "   - Pull with: <code>ollama pull qwen2:7b</code>\n\n"
-            "3. <b>Minimum specs</b>:\n"
-            "   - RAM: 8-16 GB (more for larger models)\n"
-            "   - GPU: Optional but recommended (NVIDIA/AMD/Metal)\n"
-            "   - Disk: 10-20 GB for model storage\n\n"
-            "First inference takes ~30s-2min depending on hardware.\n"
-            "Subsequent requests are faster once model is loaded."
-        )
-        msg.exec()
+        # Deprecated - PC requirements now shown prominently in Description Tagger tab
+        pass
 
     def _generate_tags_from_description(self) -> None:
         """Generate Danbooru tags from text description using Ollama."""
@@ -907,12 +971,6 @@ class MainWindow(QtWidgets.QMainWindow):
         if not description:
             self.statusbar.showMessage("Description is empty. Please enter a description.", 5000)
             return
-
-        # Show PC requirements warning on first use
-        settings_key = "description_tagger_warned"
-        if not hasattr(self, settings_key):
-            self._show_pc_requirements_warning()
-            setattr(self, settings_key, True)
 
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         self.statusbar.showMessage("Connecting to Ollama and generating tags...")
@@ -924,17 +982,17 @@ class MainWindow(QtWidgets.QMainWindow):
             
             if not tagger.check_connection():
                 raise RuntimeError(
-                    "Cannot connect to Ollama at http://localhost:11434\n\n"
+                    "❌ Cannot connect to Ollama at http://localhost:11434\n\n"
                     "Please make sure Ollama is running:\n"
                     "1. Download from ollama.ai\n"
-                    "2. Run: ollama serve\n"
-                    "3. In another terminal, pull a model: ollama pull qwen2:7b"
+                    "2. Run in terminal: ollama serve\n"
+                    "3. In another terminal: ollama pull qwen2:7b"
                 )
 
             available_models = tagger.list_available_models()
             if not available_models:
                 raise RuntimeError(
-                    "No models found in Ollama.\n\n"
+                    "❌ No models found in Ollama.\n\n"
                     "Download one with:\n"
                     "  ollama pull qwen2:7b"
                 )
@@ -942,52 +1000,19 @@ class MainWindow(QtWidgets.QMainWindow):
             self.statusbar.showMessage("Generating tags from description...")
             result = tagger.generate_tags(description)
 
-            # Convert tags to DataFrame format compatible with existing editor
-            rows = []
-            for idx, tag in enumerate(result.tags, start=1):
-                rows.append({
-                    "include": True,
-                    "rank": idx,
-                    "tag": tag,
-                    "confidence": 0.95,  # High confidence since user-specified
-                    "category": "general",  # Default category
-                })
+            # Display tags in the dedicated area
+            tags_output = "\n".join(result.tags)
+            self.desc_tags_display.setPlainText(
+                f"Generated {len(result.tags)} tags:\n\n{tags_output}"
+            )
             
-            frame = pd.DataFrame(rows)
-            if not frame.empty:
-                blacklist = _split_tags(self.blacklist.toPlainText())
-                whitelist = _split_tags(self.whitelist.toPlainText())
-                frame = _apply_filters(frame, blacklist, whitelist)
-                frame = _sort_frame(frame, self.sort_mode.currentText())
-
-            caption = _frame_to_caption(frame)
-            
-            # Create a result item for the generated tags
-            self.results = [ResultItem(
-                path=Path("(generated from description)"),
-                image=Image.new("RGB", (1, 1)),  # Dummy image
-                frame=frame,
-                caption=caption,
-            )]
-            self._active_result_index = 0
-            self._set_export_enabled(True)
-            
-            # Display the tags in the editor
-            self.result_list.blockSignals(True)
-            self.result_list.clear()
-            self.result_list.addItem("Generated Tags")
-            self.result_list.blockSignals(False)
-            self.result_list.setCurrentRow(0)
-            
-            self._frame_to_table(frame)
-            self.caption_edit.setPlainText(caption)
-            self.statusbar.showMessage(f"Generated {len(result.tags)} tags from description.", 5000)
+            self.statusbar.showMessage(f"✓ Generated {len(result.tags)} tags from description.", 5000)
 
         except RuntimeError as e:
-            QtWidgets.QMessageBox.critical(self, "Generation Failed", str(e))
+            self.desc_tags_display.setPlainText(f"⚠️ Error:\n\n{str(e)}")
             self.statusbar.showMessage("Tag generation failed.", 5000)
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error", f"Unexpected error: {e}")
+            self.desc_tags_display.setPlainText(f"⚠️ Unexpected error:\n\n{str(e)}")
             self.statusbar.showMessage("Tag generation error.", 5000)
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
