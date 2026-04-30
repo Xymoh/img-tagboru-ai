@@ -1063,41 +1063,18 @@ class MainWindow(QtWidgets.QMainWindow):
         
         tags_output = ", ".join(result.tags)
         
-        # Count raw generated tags to show user what was filtered
-        import re
-        raw_tags = [t.strip().lower() for t in re.split(r'[\n,\.]+', result.raw_response) if t.strip()]
-        raw_count = len(raw_tags)
-        valid_count = len(result.tags)
-        
-        if valid_count == 0:
-            # No valid tags passed filtering
+        if len(result.tags) == 0:
             display_text = (
-                "⚠️ WARNING: No valid Danbooru tags found\n\n"
-                f"The model generated {raw_count} tags but none matched the official Danbooru whitelist.\n\n"
-                "Try refining your description with:\n"
-                "• Specific traits (long_hair, blue_eyes, etc.)\n"
-                "• Clothing items (dress, shirt, bikini, etc.)\n"
-                "• Body descriptions (small_breasts, large_breasts, etc.)\n"
-                "• Poses (standing, sitting, lying_down)\n"
-                "• Settings (indoors, bedroom, outdoor)\n\n"
-                f"Raw output was: {', '.join(raw_tags[:10])}{'...' if raw_count > 10 else ''}"
+                "⚠️ No output generated\n\n"
+                "Try refining your description with more visual details."
             )
             self._copy_tags_btn.setEnabled(False)
-        elif raw_count > valid_count:
-            # Some tags were filtered
-            filtered_count = raw_count - valid_count
-            display_text = (
-                f"✓ Generated {valid_count} valid tags ({filtered_count} were filtered as invalid):\n\n"
-                f"{tags_output}"
-            )
-            self._copy_tags_btn.setEnabled(True)
         else:
-            # All tags were valid
-            display_text = f"✓ Generated {valid_count} tags:\n\n{tags_output}"
+            display_text = f"✓ Generated prompt ({len(result.tags)} terms):\n\n{tags_output}"
             self._copy_tags_btn.setEnabled(True)
         
         self.desc_tags_display.setPlainText(display_text)
-        self.statusbar.showMessage(f"✓ Generated {valid_count} valid tags from description.", 5000)
+        self.statusbar.showMessage(f"✓ Generated {len(result.tags)} prompt terms.", 5000)
         self.generate_from_desc_btn.setEnabled(True)
         self._tag_worker = None
 

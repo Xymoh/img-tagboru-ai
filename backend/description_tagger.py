@@ -29,33 +29,37 @@ class DescriptionTagger:
     DEFAULT_HOST = "http://localhost:11434"
     MAX_TAGS = 40
     
-    SYSTEM_PROMPT = """You are an expert Danbooru tagger. Only use real, established Danbooru tags.
-
-VALID TAG PATTERNS (examples):
-- Character traits: 1girl, 2girls, 1boy, long_hair, black_hair, blue_eyes, blonde_hair, redhead
-- Body: breasts, small_breasts, large_breasts, nude, penis, cum, sex, anal, fellatio, missionary
-- Clothing: dress, skirt, shirt, bikini, thighhighs, stockings, gloves, hat, crown, maid_outfit
-- Settings: indoors, outdoors, bedroom, bathroom, beach, forest, garden, school
-- Pose/action: standing, sitting, lying_down, dancing, looking_at_viewer, smile, blush
-- Style: traditional_media, watercolor, oil_painting, sketch, monochrome, grayscale
-
-INVALID/NEVER USE (common mistakes):
-- Character: male, female (use 1girl, 1boy, 2girls, 2boys with numbers instead)
-- Generic: lewd, ecchi, anime, anime_style, style, pose, fantasy, character (too vague)
-- Made-up tags: dark_skinned, oekaki, small_tits (not real Danbooru tags)
-- Not standalone: interior, indoors_interior (use just "indoors")
+    SYSTEM_PROMPT = """You are an expert prompt generator for AI image synthesis (ComfyUI, Stable Diffusion, DALL-E).
 
 Task:
-Convert the description into a comma-separated list of REAL Danbooru tags.
+Convert the user's description into a detailed, comma-separated prompt with visual descriptors and style guidance.
+
+Style:
+- Be specific and descriptive (NOT generic)
+- Include character details: clothing, pose, expression, hair, build
+- Include environment: lighting, setting, atmosphere, weather
+- Include technical/style tags: art style, quality descriptors, camera angles
+- Use natural language mixed with tag-like terms
+- Make it vivid and paint a clear visual picture
 
 Output format:
-- Single comma-separated list (no numbering, bullets, or explanations)
-- Lowercase only, underscores for multi-word tags
-- Return at most 40 tags
-- Prefer most important visual facts first
+- Single comma-separated list (no numbering, bullets, or code blocks)
+- Aim for 15-40 descriptive terms/phrases
+- Lowercase, use underscores for multi-word phrases when natural
+- Order by importance: subject → appearance → action → setting → style
 
-Example input: "girl with long black hair sitting in a chair"
-Example output: 1girl, long_hair, black_hair, sitting, chair, indoors"""
+DO NOT WORRY ABOUT:
+- Using "official" tag names (Danbooru, etc.)
+- Perfect grammar - natural descriptive phrases are fine
+- Too many adjectives - more is better for image generation
+
+GOOD examples:
+- "1girl, long black hair, red eyes, maid outfit, standing, indoors, smiling, soft lighting, detailed face, high quality"
+- "portrait, woman with flowing blonde hair, ethereal, glowing aura, fantasy setting, mystical atmosphere, dramatic lighting, highly detailed"
+- "landscape, dense forest, misty morning, sunlight filtering through trees, detailed foliage, depth of field, cinematic"
+
+Example input: "nun with lewd expression, adult content"
+Example output: nun, religious robes, prayer beads, cathedral setting, soft candlelight, intimate pose, detailed features, artistic, sensual expression"""
     
     def __init__(self, host: str = DEFAULT_HOST, model: str = DEFAULT_MODEL) -> None:
         if ollama is None:
@@ -180,8 +184,8 @@ Example output: 1girl, long_hair, black_hair, sitting, chair, indoors"""
     def _parse_tags(self, raw_response: str) -> list[str]:
         """Extract and validate tags from raw LLM response.
         
-        Only tags that exist in the Danbooru whitelist are kept.
-        Invalid/hallucinated tags are silently filtered out.
+        Tags are parsed as-is without Danbooru whitelist validation.
+        This allows for free-form descriptive prompts suitable for image generation.
         """
         raw_response = self._clean_response_text(raw_response)
         tags = []
@@ -197,10 +201,6 @@ Example output: 1girl, long_hair, black_hair, sitting, chair, indoors"""
                 continue
             normalized = line.lower()
             if normalized in seen:
-                continue
-            
-            # Only keep tags that are in the Danbooru whitelist
-            if self.danbooru_tags and normalized not in self.danbooru_tags:
                 continue
             
             seen.add(normalized)
