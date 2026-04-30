@@ -76,6 +76,8 @@ This project can be packaged as a standalone Windows desktop exe.
 
 3. The packaged app will be written to `dist\img-tagger.exe`.
 
+GitHub Releases are also supported: push a tag like `v1.0.0` and the Windows build workflow will publish `dist\img-tagger.exe` as a release asset.
+
 Notes:
 
 - The exe launches the native PySide6 desktop app.
