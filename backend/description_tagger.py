@@ -14,6 +14,13 @@ try:
 except ImportError:
     ollama = None
 
+# Import the tag vocabulary from the trained tagger
+try:
+    from backend.tagger import _download_model_file, _load_tags
+    HAS_TAGGER = True
+except ImportError:
+    HAS_TAGGER = False
+
 
 @dataclass(frozen=True)
 class DescriptionTagResult:
@@ -29,38 +36,6 @@ class DescriptionTagger:
     DEFAULT_HOST = "http://localhost:11434"
     MAX_TAGS = 40
     
-    SYSTEM_PROMPT = """You are an expert prompt generator for AI image synthesis (ComfyUI, Stable Diffusion, DALL-E).
-
-Task:
-Convert the user's description into a detailed, comma-separated prompt with visual descriptors and style guidance.
-
-Style:
-- Be specific and descriptive (NOT generic)
-- Include character details: clothing, pose, expression, hair, build
-- Include environment: lighting, setting, atmosphere, weather
-- Include technical/style tags: art style, quality descriptors, camera angles
-- Use natural language mixed with tag-like terms
-- Make it vivid and paint a clear visual picture
-
-Output format:
-- Single comma-separated list (no numbering, bullets, or code blocks)
-- Aim for 15-40 descriptive terms/phrases
-- Lowercase, use underscores for multi-word phrases when natural
-- Order by importance: subject → appearance → action → setting → style
-
-DO NOT WORRY ABOUT:
-- Using "official" tag names (Danbooru, etc.)
-- Perfect grammar - natural descriptive phrases are fine
-- Too many adjectives - more is better for image generation
-
-GOOD examples:
-- "1girl, long black hair, red eyes, maid outfit, standing, indoors, smiling, soft lighting, detailed face, high quality"
-- "portrait, woman with flowing blonde hair, ethereal, glowing aura, fantasy setting, mystical atmosphere, dramatic lighting, highly detailed"
-- "landscape, dense forest, misty morning, sunlight filtering through trees, detailed foliage, depth of field, cinematic"
-
-Example input: "nun with lewd expression, adult content"
-Example output: nun, religious robes, prayer beads, cathedral setting, soft candlelight, intimate pose, detailed features, artistic, sensual expression"""
-    
     def __init__(self, host: str = DEFAULT_HOST, model: str = DEFAULT_MODEL) -> None:
         if ollama is None:
             raise ImportError(
@@ -70,6 +45,91 @@ Example output: nun, religious robes, prayer beads, cathedral setting, soft cand
         self.model = model
         self.client = ollama.Client(host=host)
         self.danbooru_tags = self._load_danbooru_whitelist()
+        self.known_tags = self._load_known_tags()
+        self.system_prompt = self._build_system_prompt()
+    
+    def _load_known_tags(self) -> list[str]:
+        """Load tag vocabulary from the trained image tagger."""
+        if not HAS_TAGGER:
+            return []
+        
+        try:
+            from pathlib import Path
+            tags_path = _download_model_file("selected_tags.csv")
+            tag_records = _load_tags(tags_path)
+            tags = [record.name for record in tag_records]
+            print(f"Loaded {len(tags)} known tags from trained tagger")
+            return tags
+        except Exception as e:
+            print(f"Warning: Could not load trained tagger tags: {e}")
+            return []
+    
+    def _build_system_prompt(self) -> str:
+        """Build system prompt with real tags from the trained model."""
+        if not self.known_tags:
+            # Fallback if no trained tags available
+            return self._get_default_system_prompt()
+        
+        # Create tag sets by category with more examples
+        character_tags = sorted([t for t in self.known_tags if any(x in t for x in ['girl', 'boy', '1girl', '2girls', '1boy', 'boy', 'hair', 'eyes'])])[:20]
+        clothing_tags = sorted([t for t in self.known_tags if any(x in t for x in ['dress', 'shirt', 'skirt', 'coat', 'outfit', 'top', 'bottom', 'uniform'])])[:15]
+        setting_tags = sorted([t for t in self.known_tags if any(x in t for x in ['indoors', 'outdoors', 'beach', 'forest', 'room', 'sky', 'bedroom', 'office'])])[:12]
+        action_tags = sorted([t for t in self.known_tags if any(x in t for x in ['standing', 'sitting', 'lying', 'dancing', 'running', 'holding', 'reading', 'playing'])])[:12]
+        style_tags = sorted([t for t in self.known_tags if any(x in t for x in ['painting', 'detailed', 'quality', 'lighting', 'style', 'realistic', 'sketch', 'watercolor'])])[:12]
+        
+        prompt = f"""You are an expert AI art prompt generator trained on real image tagging data from a neural network tagger.
+
+YOUR TASK: Generate accurate descriptive tags for image synthesis. ONLY output tags that are in the AVAILABLE TAGS list below.
+
+AVAILABLE TAGS YOU CAN USE (real tags from trained tagger):
+- Characters: {', '.join(character_tags[:10])} ... and {len(character_tags) - 10} more
+- Clothing: {', '.join(clothing_tags[:8])} ... and {len(clothing_tags) - 8} more  
+- Settings: {', '.join(setting_tags[:8])} ... and {len(setting_tags) - 8} more
+- Actions: {', '.join(action_tags[:8])} ... and {len(action_tags) - 8} more
+- Styles: {', '.join(style_tags[:8])} ... and {len(style_tags) - 8} more
+
+CRITICAL RULES:
+1. ONLY use tags from the list above - do NOT invent new tags
+2. Map each description element to the closest matching tag
+3. Generate 15-30 tags if possible (more is better for image generation)
+4. Output as comma-separated list, lowercase with underscores
+5. Do NOT explain - just output the tags
+
+APPROACH:
+- Identify: character type, clothing, pose/action, setting, artistic style
+- Match each to available tags
+- Prefer specific over generic
+
+OUTPUT FORMAT: tag1, tag2, tag3, ... (ONLY tags, NO explanations)
+
+TEST EXAMPLES:
+Input: "a girl with long black hair sitting in a library"
+Output: 1girl, long_hair, black_hair, sitting, library, window, books, indoors, detailed, soft_lighting
+
+Input: "fantasy forest landscape with magical elements"  
+Output: landscape, forest, nature, scenery, detailed, clouds, trees, grass, outdoor, magical"""
+        
+        return prompt
+    
+    def _get_default_system_prompt(self) -> str:
+        """Fallback system prompt when trained tags aren't available."""
+        return """You are an expert AI art prompt generator.
+
+Convert the user's description into a detailed comma-separated prompt for image generation.
+
+STYLE:
+- Be specific: character details, clothing, pose, environment
+- Include: lighting, atmosphere, artistic style, quality level
+- Use underscores for multi-word tags
+
+OUTPUT:
+- Single comma-separated list, 15-40 tags
+- Lowercase, no explanations or code blocks
+- Order by importance
+
+Example input: "girl sitting by a window"
+Example output: 1girl, sitting, window, books, warm_lighting, cozy, detailed, soft_colors"""
+    
     
     def _load_danbooru_whitelist(self) -> set[str]:
         """Load valid Danbooru tag names from CSV file into a set for O(1) lookup.
@@ -161,11 +221,11 @@ Example output: nun, religious robes, prayer beads, cathedral setting, soft cand
             response = self.client.generate(
                 model=self.model,
                 prompt=description,
-                system=self.SYSTEM_PROMPT,
+                system=self.system_prompt,
                 options={
-                    "temperature": 0.2,
-                    "top_p": 0.9,
-                    "num_predict": 96,
+                    "temperature": 0.5,
+                    "top_p": 0.95,
+                    "num_predict": 150,
                 },
                 stream=False,
             )
@@ -182,10 +242,10 @@ Example output: nun, religious robes, prayer beads, cathedral setting, soft cand
             raise RuntimeError(f"Tag generation failed: {e}")
     
     def _parse_tags(self, raw_response: str) -> list[str]:
-        """Extract and validate tags from raw LLM response.
+        """Extract tags from raw LLM response, filtered to trained vocabulary.
         
-        Tags are parsed as-is without Danbooru whitelist validation.
-        This allows for free-form descriptive prompts suitable for image generation.
+        Constrains output to only tags from the trained image tagger's vocabulary,
+        ensuring compatibility with the actual model's understanding.
         """
         raw_response = self._clean_response_text(raw_response)
         tags = []
@@ -201,6 +261,10 @@ Example output: nun, religious robes, prayer beads, cathedral setting, soft cand
                 continue
             normalized = line.lower()
             if normalized in seen:
+                continue
+            
+            # Filter to only known tags from trained vocabulary
+            if self.known_tags and normalized not in self.known_tags:
                 continue
             
             seen.add(normalized)
