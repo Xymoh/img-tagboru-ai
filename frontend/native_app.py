@@ -105,6 +105,26 @@ def _export_zip(results: list[ResultItem]) -> bytes:
     return buffer.getvalue()
 
 
+class DescriptionTagWorker(QtCore.QThread):
+    """Worker thread for description-to-tags generation (prevents UI freeze)."""
+    finished = QtCore.Signal(DescriptionTagResult)
+    error = QtCore.Signal(str)
+
+    def __init__(self, description: str, model: str) -> None:
+        super().__init__()
+        self.description = description
+        self.model = model
+
+    def run(self) -> None:
+        """Run tag generation in background thread."""
+        try:
+            tagger = get_description_tagger(model=self.model)
+            result = tagger.generate_tags(self.description)
+            self.finished.emit(result)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -116,6 +136,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.results: list[ResultItem] = []
         self._active_result_index = -1
         self._preview_image: Image.Image | None = None
+        self._tag_worker: DescriptionTagWorker | None = None
 
         root = QtWidgets.QWidget()
         self.setCentralWidget(root)
@@ -329,12 +350,15 @@ class MainWindow(QtWidgets.QMainWindow):
             "🔹 Requires: Ollama (http://ollama.ai)\n"
             "🔹 RAM: 8-16GB minimum (16GB+ recommended)\n"
             "🔹 Disk: 10-20GB free space for model\n"
-            "🔹 GPU: Optional (NVIDIA/AMD accelerates generation)\n\n"
-            "Setup:\n"
-            "  1. Download and install Ollama\n"
-            "  2. Run in terminal: ollama serve\n"
-            "  3. In another terminal: ollama pull qwen2:7b\n"
-            "  4. Return here and generate tags!"
+            "🔹 GPU: ⚡ HIGHLY RECOMMENDED (NVIDIA/AMD) - 10-100x faster!\n\n"
+            "⚙️ Setup:\n"
+            "  1. Download Ollama: ollama.ai\n"
+            "  2. For GPU: Install NVIDIA drivers (CUDA) or AMD drivers (ROCm)\n"
+            "  3. Run in terminal: ollama serve\n"
+            "  4. Check GPU usage: ollama ps (shows 'GPU loaded')\n"
+            "  5. Pull model: ollama pull qwen2:7b\n"
+            "  6. Return here and generate tags!\n\n"
+            "💡 Tip: Without GPU, 14B models take 5-30 minutes. With GPU: 10-60 seconds."
         )
         req_text.setWordWrap(True)
         req_text.setStyleSheet("color: #ffcc66; font-family: monospace; font-size: 9px;")
@@ -1001,62 +1025,45 @@ class MainWindow(QtWidgets.QMainWindow):
             self.model_selector.blockSignals(False)
 
     def _generate_tags_from_description(self) -> None:
-        """Generate Danbooru tags from text description using Ollama."""
+        """Generate Danbooru tags from text description using Ollama (non-blocking)."""
         description = self.description_input.toPlainText().strip()
         if not description:
             self.statusbar.showMessage("Description is empty. Please enter a description.", 5000)
             return
 
-        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        self.statusbar.showMessage("Connecting to Ollama and generating tags...")
-        self.generate_from_desc_btn.setEnabled(False)
-
-        try:
-            tagger = get_description_tagger()
-            selected_model = self.model_selector.currentData()
-            if not selected_model:
-                raise RuntimeError("No model selected. Refresh models or start Ollama.")
-
-            tagger = get_description_tagger(model=selected_model)
-            self.statusbar.showMessage("Checking Ollama connection...")
-            
-            if not tagger.check_connection():
-                raise RuntimeError(
-                    "❌ Cannot connect to Ollama at http://localhost:11434\n\n"
-                    "Please make sure Ollama is running:\n"
-                    "1. Download from ollama.ai\n"
-                    "2. Run in terminal: ollama serve\n"
-                    "3. In another terminal: ollama pull qwen2:7b"
-                )
-
-            available_models = tagger.list_available_models()
-            if not available_models:
-                raise RuntimeError(
-                    "❌ No models found in Ollama.\n\n"
-                    "Download one with:\n"
-                    "  ollama pull qwen2:7b"
-                )
-
-            self.statusbar.showMessage("Generating tags from description...")
-            result = tagger.generate_tags(description)
-
-            # Display tags in the dedicated area
-            tags_output = "\n".join(result.tags)
-            self.desc_tags_display.setPlainText(
-                f"Generated {len(result.tags)} tags:\n\n{tags_output}"
-            )
-            
-            self.statusbar.showMessage(f"✓ Generated {len(result.tags)} tags from description.", 5000)
-
-        except RuntimeError as e:
-            self.desc_tags_display.setPlainText(f"⚠️ Error:\n\n{str(e)}")
+        selected_model = self.model_selector.currentData()
+        if not selected_model:
+            self.desc_tags_display.setPlainText("⚠️ Error:\n\nNo model selected. Refresh models or start Ollama.")
             self.statusbar.showMessage("Tag generation failed.", 5000)
-        except Exception as e:
-            self.desc_tags_display.setPlainText(f"⚠️ Unexpected error:\n\n{str(e)}")
-            self.statusbar.showMessage("Tag generation error.", 5000)
-        finally:
-            QtWidgets.QApplication.restoreOverrideCursor()
-            self.generate_from_desc_btn.setEnabled(True)
+            return
+
+        # Disable button and show loading state
+        self.generate_from_desc_btn.setEnabled(False)
+        self.desc_tags_display.setPlainText("⏳ Generating tags... (this may take a while)\n\n⚠️ TIP: Enable GPU in Ollama for faster generation!")
+        self.statusbar.showMessage("Connecting to Ollama and generating tags...")
+
+        # Create and start worker thread
+        self._tag_worker = DescriptionTagWorker(description, selected_model)
+        self._tag_worker.finished.connect(self._on_tags_generated)
+        self._tag_worker.error.connect(self._on_tag_generation_error)
+        self._tag_worker.start()
+
+    def _on_tags_generated(self, result: DescriptionTagResult) -> None:
+        """Handle successful tag generation."""
+        tags_output = "\n".join(result.tags)
+        self.desc_tags_display.setPlainText(
+            f"✓ Generated {len(result.tags)} tags:\n\n{tags_output}"
+        )
+        self.statusbar.showMessage(f"✓ Generated {len(result.tags)} tags from description.", 5000)
+        self.generate_from_desc_btn.setEnabled(True)
+        self._tag_worker = None
+
+    def _on_tag_generation_error(self, error_msg: str) -> None:
+        """Handle tag generation error."""
+        self.desc_tags_display.setPlainText(f"⚠️ Error:\n\n{error_msg}")
+        self.statusbar.showMessage("Tag generation failed.", 5000)
+        self.generate_from_desc_btn.setEnabled(True)
+        self._tag_worker = None
 
     def export_caption(self) -> None:
         result = self._current_result()
