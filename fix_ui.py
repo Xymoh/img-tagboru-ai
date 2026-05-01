@@ -85,7 +85,7 @@ new_method = '''    def _refresh_available_models(self) -> None:
                     self.statusbar.showMessage(f"Found {len(models)} model(s)", 3000)
                 else:
                     self.model_selector.addItem("(No models found)", None)
-                    self.statusbar.showMessage("No models found. Run: ollama pull qwen2:7b", 5000)
+                    self.statusbar.showMessage("No models found. Run: ollama pull richardyoung/qwen3-14b-abliterated", 5000)
         except Exception as e:
             self.model_selector.addItem(f"❌ Error: {str(e)[:30]}", None)
             self.statusbar.showMessage(f"Failed to load models: {str(e)}", 5000)

@@ -400,12 +400,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.creativity_selector.setStyleSheet("background-color: #1a1a1a; color: #ffffff;")
         self.creativity_selector.addItem("Safe (literal, conservative)", "safe")
         self.creativity_selector.addItem("Creative (balanced)", "creative")
+        self.creativity_selector.addItem("Mature (suggestive, nsfw)", "mature")
         self.creativity_selector.addItem("Extreme (wild ideas)", "extreme")
         self.creativity_selector.setCurrentIndex(1)
         creativity_layout.addWidget(self.creativity_selector)
 
         creativity_hint = QtWidgets.QLabel(
-            "Safe: fewer surprises\nCreative: richer scenes\nExtreme: strongest atmosphere/storytelling expansion"
+            "Safe: fewer surprises\nCreative: richer scenes\nMature: adult-only, suggestive, explicit\nExtreme: strongest atmosphere/storytelling expansion"
         )
         creativity_hint.setStyleSheet("color: #9ecbff; font-size: 9px;")
         creativity_layout.addWidget(creativity_hint)
@@ -452,20 +453,22 @@ class MainWindow(QtWidgets.QMainWindow):
         # Generated tags display
         tags_group = QtWidgets.QGroupBox("Generated Tags")
         tags_layout = QtWidgets.QVBoxLayout(tags_group)
-        
+
         self.desc_tags_display = QtWidgets.QPlainTextEdit()
         self.desc_tags_display.setReadOnly(True)
         self.desc_tags_display.setPlaceholderText("Generated tags will appear here after processing...")
-        self.desc_tags_display.setStyleSheet("background-color: #1a1a1a; color: #66ff66; font-family: monospace;")
+        self.desc_tags_display.setStyleSheet(
+            "background-color: #1a1a1a; color: #66ff66; font-family: monospace; font-size: 10px;"
+        )
+        self.desc_tags_display.setMinimumHeight(180)
         tags_layout.addWidget(self.desc_tags_display)
-        
-        # Copy button for description tags
+
         copy_tags_btn = QtWidgets.QPushButton("📋 Copy Tags (Comma-Separated)")
         copy_tags_btn.setStyleSheet("background-color: #ff9933; color: white; font-weight: bold;")
         copy_tags_btn.clicked.connect(self._copy_description_tags)
         self._copy_tags_btn = copy_tags_btn
         tags_layout.addWidget(copy_tags_btn)
-        
+
         desc_layout.addWidget(tags_group)
         
         self.tabs.addTab(desc_tab, "Description Tagger")
@@ -1107,11 +1110,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_tags_generated(self, result: DescriptionTagResult) -> None:
         """Handle successful tag generation."""
-        # Store tags for copy button
         self._last_description_tags = result.tags
-        
+
         tags_output = ", ".join(result.tags)
-        
+
         if len(result.tags) == 0:
             display_text = (
                 "⚠️ No output generated\n\n"
@@ -1124,7 +1126,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 f"[{self._last_creativity_mode.capitalize()} mode]:\n\n{tags_output}"
             )
             self._copy_tags_btn.setEnabled(True)
-        
+
         self.desc_tags_display.setPlainText(display_text)
         self.statusbar.showMessage(
             f"✓ Generated {len(result.tags)} prompt terms in {self._last_creativity_mode} mode.",
@@ -1142,14 +1144,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._tag_worker = None
 
     def _copy_description_tags(self) -> None:
-        """Copy generated description tags to clipboard as comma-separated list."""
+        """Copy ALL generated tags to clipboard as comma-separated list."""
         if not hasattr(self, '_last_description_tags') or not self._last_description_tags:
             self.statusbar.showMessage("No tags to copy.", 2000)
             return
-        
         tags_text = ", ".join(self._last_description_tags)
-        clipboard = QtWidgets.QApplication.clipboard()
-        clipboard.setText(tags_text)
+        QtWidgets.QApplication.clipboard().setText(tags_text)
         self.statusbar.showMessage(f"✓ Copied {len(self._last_description_tags)} tags to clipboard", 3000)
 
     def export_caption(self) -> None:
