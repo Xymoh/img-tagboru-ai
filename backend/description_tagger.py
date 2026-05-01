@@ -97,11 +97,6 @@ class DescriptionTagger:
     - Action: {', '.join(action_tags[:10])}
     - Style: {', '.join(style_tags[:10])}
 
-    Creative strategy:
-    - Expand beyond core subject into: environment, weather, lighting, mood, background objects, camera angle.
-    - If input contains horror or dark themes, add fitting atmosphere tags.
-    - If input contains fantasy or monsters, add scene and creature context tags.
-
     Output format:
     tag1, tag2, tag3, tag4, ..."""
         
@@ -244,7 +239,7 @@ Example output: 1girl, sitting, window, books, warm_lighting, cozy, detailed, so
                 )
 
             mode_options = {
-                "safe": {"base_temp": 0.45, "temp_step": 0.06, "num_predict": 140, "target_tags": 24},
+                "safe": {"base_temp": 0.45, "temp_step": 0.06, "num_predict": 140, "target_tags": 16},
                 "creative": {"base_temp": 0.65, "temp_step": 0.10, "num_predict": 180, "target_tags": 32},
                 "extreme": {"base_temp": 0.85, "temp_step": 0.08, "num_predict": 220, "target_tags": DescriptionTagger.MAX_TAGS},
             }
@@ -256,6 +251,12 @@ Example output: 1girl, sitting, window, books, warm_lighting, cozy, detailed, so
             raw_responses: list[str] = []
 
             for idx, prompt in enumerate(prompts):
+                if creativity == "safe":
+                    prompt = (
+                        f"{description}\n\n"
+                        "Use only literal tags directly implied by the description. "
+                        "Do not add cinematic, horror, atmosphere, lighting, or camera tags unless explicitly requested."
+                    )
                 response = self.client.generate(
                     model=self.model,
                     prompt=prompt,
@@ -280,6 +281,19 @@ Example output: 1girl, sitting, window, books, warm_lighting, cozy, detailed, so
                 if len(collected_tags) >= target_tags:
                     break
 
+            if creativity == "safe":
+                literal_tags = self._extract_literal_tags_from_description(description)
+                merged: list[str] = []
+                merged_seen: set[str] = set()
+                for tag in literal_tags + collected_tags:
+                    if tag in merged_seen:
+                        continue
+                    merged_seen.add(tag)
+                    merged.append(tag)
+                    if len(merged) >= target_tags:
+                        break
+                collected_tags = merged
+
             enriched_tags = self._enrich_tags_with_scene_ideas(
                 description, collected_tags, creativity, target_tags
             )
@@ -300,11 +314,14 @@ Example output: 1girl, sitting, window, books, warm_lighting, cozy, detailed, so
         max_tags: int,
     ) -> list[str]:
         """Add vocabulary-safe creative scene tags using description-driven heuristics."""
+        if creativity == "safe":
+            return tags[:max_tags]
+
         seen = set(tags)
         enriched = list(tags)
         desc = description.lower()
 
-        trigger_map = [
+        direct_trigger_map = [
             (
                 ["nun", "church", "religious"],
                 ["habit", "veil", "church", "cross", "cross_necklace"],
@@ -319,49 +336,11 @@ Example output: 1girl, sitting, window, books, warm_lighting, cozy, detailed, so
                     "graveyard",
                     "grave",
                     "tombstone",
-                    "skull",
-                    "holding_skull",
-                    "blood",
-                    "blood_splatter",
-                    "blood_on_face",
-                    "blood_on_clothes",
                 ],
             ),
             (
                 ["cemetery", "graveyard", "grave", "tomb"],
-                [
-                    "graveyard",
-                    "grave",
-                    "tombstone",
-                    "cross",
-                    "night",
-                    "night_sky",
-                    "cloudy_sky",
-                    "moon",
-                    "full_moon",
-                    "fog",
-                    "outdoors",
-                    "ruins",
-                    "crow",
-                ],
-            ),
-            (
-                ["scary", "horror", "dark", "creepy", "ambience", "atmosphere"],
-                [
-                    "horror_(theme)",
-                    "dark",
-                    "darkness",
-                    "shadow",
-                    "moonlight",
-                    "backlighting",
-                    "candlelight",
-                    "fog",
-                    "smoke",
-                    "embers",
-                    "dutch_angle",
-                    "wide_shot",
-                    "depth_of_field",
-                ],
+                ["graveyard", "grave", "tombstone", "cross", "outdoors", "ruins", "crow"],
             ),
             (
                 ["fellatio", "oral", "sex", "lewd"],
@@ -382,6 +361,39 @@ Example output: 1girl, sitting, window, books, warm_lighting, cozy, detailed, so
                 ],
             ),
         ]
+
+        cinematic_trigger_map = [
+            (
+                [
+                    "scary",
+                    "horror",
+                    "creepy",
+                    "ambience",
+                    "atmosphere",
+                    "dark ambience",
+                    "dark atmosphere",
+                ],
+                [
+                    "horror_(theme)",
+                    "dark",
+                    "darkness",
+                    "shadow",
+                    "moonlight",
+                    "backlighting",
+                    "candlelight",
+                    "fog",
+                    "smoke",
+                    "embers",
+                    "dutch_angle",
+                    "wide_shot",
+                    "depth_of_field",
+                ],
+            ),
+        ]
+
+        trigger_map = list(direct_trigger_map)
+        if creativity in {"creative", "extreme"}:
+            trigger_map.extend(cinematic_trigger_map)
 
         for triggers, candidates in trigger_map:
             if not any(trigger in desc for trigger in triggers):
@@ -428,6 +440,43 @@ Example output: 1girl, sitting, window, books, warm_lighting, cozy, detailed, so
                     return enriched
 
         return enriched
+
+    def _extract_literal_tags_from_description(self, description: str) -> list[str]:
+        """Map explicit user words/phrases to known tags for safe mode."""
+        desc = description.lower()
+        phrase_map = [
+            ("1girl", "1girl"),
+            ("1boy", "1boy"),
+            ("2boys", "2boys"),
+            ("2girls", "2girls"),
+            ("fellatio", "fellatio"),
+            ("oral", "oral"),
+            ("sex", "sex"),
+            ("male", "1boy"),
+            ("female", "1girl"),
+            ("fat", "fat"),
+            ("chubby", "fat"),
+            ("dark skinned", "dark_skin"),
+            ("dark-skinned", "dark_skin"),
+            ("dark skin", "dark_skin"),
+            ("nude", "nude"),
+            ("cum", "cum"),
+            ("sloppy", "open_mouth"),
+            ("messy", "messy_hair"),
+        ]
+
+        tags: list[str] = []
+        seen: set[str] = set()
+        for phrase, tag in phrase_map:
+            if phrase not in desc:
+                continue
+            if self.known_tags and tag not in self.known_tags:
+                continue
+            if tag in seen:
+                continue
+            seen.add(tag)
+            tags.append(tag)
+        return tags
     
     def _parse_tags(self, raw_response: str) -> list[str]:
         """Extract tags from raw LLM response, filtered to trained vocabulary.
