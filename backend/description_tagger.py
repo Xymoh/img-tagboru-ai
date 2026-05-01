@@ -34,6 +34,7 @@ class DescriptionTagger:
     
     DEFAULT_MODEL = "qwen2:7b"
     DEFAULT_HOST = "http://localhost:11434"
+    DEFAULT_CREATIVITY = "creative"
     MAX_TAGS = 40
     
     def __init__(self, host: str = DEFAULT_HOST, model: str = DEFAULT_MODEL) -> None:
@@ -48,7 +49,7 @@ class DescriptionTagger:
         self.known_tags = self._load_known_tags()
         self.system_prompt = self._build_system_prompt()
     
-    def _load_known_tags(self) -> list[str]:
+    def _load_known_tags(self) -> set[str]:
         """Load tag vocabulary from the trained image tagger as a set for fast lookup."""
         if not HAS_TAGGER:
             return set()
@@ -77,23 +78,32 @@ class DescriptionTagger:
         action_tags = sorted([t for t in self.known_tags if any(x in t for x in ['standing', 'sitting', 'lying', 'dancing', 'running', 'holding', 'reading', 'playing'])])[:12]
         style_tags = sorted([t for t in self.known_tags if any(x in t for x in ['painting', 'detailed', 'quality', 'lighting', 'style', 'realistic', 'sketch', 'watercolor'])])[:12]
         
-        prompt = f"""You are an expert AI art prompt generator trained on real image tagging data from a neural network tagger.
-Generate tags from description using this real trained vocabulary:
-You are an image tagging AI. Output 30+ tags for the description.
-Generate tags. Use these trained vocabulary examples:
-Generate 40-50 detailed image tags from description. Use real trained vocabulary.
+        prompt = f"""You are a creative image-tag prompt generator.
 
-EXAMPLES OF TRAINED TAGS YOU CAN USE:
-{', '.join(character_tags[:12])} {', '.join(clothing_tags[:12])} {', '.join(setting_tags[:10])} {', '.join(action_tags[:10])}
+    Goal:
+    - Convert user description into a rich, idea-heavy comma-separated tag list.
+    - Be imaginative with scene details, atmosphere, composition, and storytelling elements.
 
-INSTRUCTION:
-- Generate 40-50 comma-separated tags (not 5, not 10 - aim for 40+)
-- Use tags similar to examples above
-- Format: tag1, tag2, tag3, ...
-- Output ONLY tags, no explanations
+    Critical constraints:
+    - Use Danbooru-style tags.
+    - Output only tags separated by commas.
+    - No prose, no bullets, no numbering.
+    - Prefer 24-40 tags when description supports it.
 
-EXAMPLE OUTPUT (THIS FORMAT):
-1girl, long_hair, black_hair, blue_eyes, nun, habit, small_breasts, standing, indoors, church, detailed, beautiful, realistic, high_quality, masterpiece, and many more"""
+    Tag style examples from trained vocabulary:
+    - Character: {', '.join(character_tags[:10])}
+    - Clothing: {', '.join(clothing_tags[:10])}
+    - Setting: {', '.join(setting_tags[:10])}
+    - Action: {', '.join(action_tags[:10])}
+    - Style: {', '.join(style_tags[:10])}
+
+    Creative strategy:
+    - Expand beyond core subject into: environment, weather, lighting, mood, background objects, camera angle.
+    - If input contains horror or dark themes, add fitting atmosphere tags.
+    - If input contains fantasy or monsters, add scene and creature context tags.
+
+    Output format:
+    tag1, tag2, tag3, tag4, ..."""
         
         return prompt
     
@@ -182,7 +192,7 @@ Example output: 1girl, sitting, window, books, warm_lighting, cozy, detailed, so
         except Exception as e:
             raise RuntimeError(f"Failed to pull model {model}: {e}")
     
-    def generate_tags(self, description: str) -> DescriptionTagResult:
+    def generate_tags(self, description: str, creativity: str = DEFAULT_CREATIVITY) -> DescriptionTagResult:
         """Generate Danbooru tags from a text description.
         
         Args:
@@ -196,6 +206,10 @@ Example output: 1girl, sitting, window, books, warm_lighting, cozy, detailed, so
         """
         if not description or not description.strip():
             raise ValueError("Description cannot be empty")
+
+        creativity = (creativity or DescriptionTagger.DEFAULT_CREATIVITY).strip().lower()
+        if creativity not in {"safe", "creative", "extreme"}:
+            creativity = DescriptionTagger.DEFAULT_CREATIVITY
         
         if not self.check_connection():
             raise RuntimeError(
@@ -204,28 +218,216 @@ Example output: 1girl, sitting, window, books, warm_lighting, cozy, detailed, so
             )
         
         try:
-            response = self.client.generate(
-                model=self.model,
-                prompt=description,
-                system=self.system_prompt,
-                options={
-                    "temperature": 0.7,
-                    "top_p": 0.95,
-                    "num_predict": 150,
-                },
-                stream=False,
+            prompts = [description]
+            if creativity in {"creative", "extreme"}:
+                prompts.append(
+                    (
+                        f"{description}\n\n"
+                        "Expand with creative scene ideas: environment, atmosphere, lighting, "
+                        "composition, background props, and cinematic details."
+                    )
+                )
+                prompts.append(
+                    (
+                        f"{description}\n\n"
+                        "Generate an alternative variation focused on mood and storytelling details "
+                        "while keeping the same core subject."
+                    )
+                )
+            if creativity == "extreme":
+                prompts.append(
+                    (
+                        f"{description}\n\n"
+                        "Push imagination further: add unusual but coherent cinematic composition, "
+                        "atmospheric details, and background storytelling cues while keeping the same subject."
+                    )
+                )
+
+            mode_options = {
+                "safe": {"base_temp": 0.45, "temp_step": 0.06, "num_predict": 140, "target_tags": 24},
+                "creative": {"base_temp": 0.65, "temp_step": 0.10, "num_predict": 180, "target_tags": 32},
+                "extreme": {"base_temp": 0.85, "temp_step": 0.08, "num_predict": 220, "target_tags": DescriptionTagger.MAX_TAGS},
+            }
+            opts = mode_options[creativity]
+            target_tags = opts["target_tags"]
+
+            collected_tags: list[str] = []
+            seen: set[str] = set()
+            raw_responses: list[str] = []
+
+            for idx, prompt in enumerate(prompts):
+                response = self.client.generate(
+                    model=self.model,
+                    prompt=prompt,
+                    system=self.system_prompt,
+                    options={
+                        "temperature": min(1.15, opts["base_temp"] + (idx * opts["temp_step"])),
+                        "top_p": 0.95,
+                        "num_predict": opts["num_predict"],
+                    },
+                    stream=False,
+                )
+                raw_text = response.get("response", "").strip()
+                raw_responses.append(raw_text)
+
+                for tag in self._parse_tags(raw_text):
+                    if tag in seen:
+                        continue
+                    seen.add(tag)
+                    collected_tags.append(tag)
+                    if len(collected_tags) >= target_tags:
+                        break
+                if len(collected_tags) >= target_tags:
+                    break
+
+            enriched_tags = self._enrich_tags_with_scene_ideas(
+                description, collected_tags, creativity, target_tags
             )
-            
-            raw_text = response.get("response", "").strip()
-            tags = self._parse_tags(raw_text)
-            
+
             return DescriptionTagResult(
-                tags=tags,
-                raw_response=raw_text,
+                tags=enriched_tags[:target_tags],
+                raw_response="\n---\n".join(raw_responses),
                 model=self.model,
             )
         except Exception as e:
             raise RuntimeError(f"Tag generation failed: {e}")
+
+    def _enrich_tags_with_scene_ideas(
+        self,
+        description: str,
+        tags: list[str],
+        creativity: str,
+        max_tags: int,
+    ) -> list[str]:
+        """Add vocabulary-safe creative scene tags using description-driven heuristics."""
+        seen = set(tags)
+        enriched = list(tags)
+        desc = description.lower()
+
+        trigger_map = [
+            (
+                ["nun", "church", "religious"],
+                ["habit", "veil", "church", "cross", "cross_necklace"],
+            ),
+            (
+                ["zombie", "ghoul", "undead", "monster"],
+                [
+                    "zombie",
+                    "undead",
+                    "monster",
+                    "monster_girl",
+                    "graveyard",
+                    "grave",
+                    "tombstone",
+                    "skull",
+                    "holding_skull",
+                    "blood",
+                    "blood_splatter",
+                    "blood_on_face",
+                    "blood_on_clothes",
+                ],
+            ),
+            (
+                ["cemetery", "graveyard", "grave", "tomb"],
+                [
+                    "graveyard",
+                    "grave",
+                    "tombstone",
+                    "cross",
+                    "night",
+                    "night_sky",
+                    "cloudy_sky",
+                    "moon",
+                    "full_moon",
+                    "fog",
+                    "outdoors",
+                    "ruins",
+                    "crow",
+                ],
+            ),
+            (
+                ["scary", "horror", "dark", "creepy", "ambience", "atmosphere"],
+                [
+                    "horror_(theme)",
+                    "dark",
+                    "darkness",
+                    "shadow",
+                    "moonlight",
+                    "backlighting",
+                    "candlelight",
+                    "fog",
+                    "smoke",
+                    "embers",
+                    "dutch_angle",
+                    "wide_shot",
+                    "depth_of_field",
+                ],
+            ),
+            (
+                ["fellatio", "oral", "sex", "lewd"],
+                [
+                    "open_mouth",
+                    "oral",
+                    "sex",
+                    "1boy",
+                    "2boys",
+                    "multiple_boys",
+                    "penis",
+                    "erection",
+                    "looking_at_penis",
+                    "cum",
+                    "cum_in_mouth",
+                    "nude",
+                    "spread_legs",
+                ],
+            ),
+        ]
+
+        for triggers, candidates in trigger_map:
+            if not any(trigger in desc for trigger in triggers):
+                continue
+            for candidate in candidates:
+                if candidate in seen:
+                    continue
+                if self.known_tags and candidate not in self.known_tags:
+                    continue
+                seen.add(candidate)
+                enriched.append(candidate)
+                if len(enriched) >= max_tags:
+                    return enriched
+
+        # Add a small atmosphere tail for creative/extreme modes if still short.
+        if creativity in {"creative", "extreme"} and len(enriched) < max_tags:
+            tail_candidates = [
+                "night",
+                "night_sky",
+                "cloudy_sky",
+                "moon",
+                "full_moon",
+                "fog",
+                "smoke",
+                "shadow",
+                "dark",
+                "moonlight",
+                "backlighting",
+                "dutch_angle",
+                "wide_shot",
+                "depth_of_field",
+                "outdoors",
+                "ruins",
+                "crow",
+            ]
+            for candidate in tail_candidates:
+                if candidate in seen:
+                    continue
+                if self.known_tags and candidate not in self.known_tags:
+                    continue
+                seen.add(candidate)
+                enriched.append(candidate)
+                if len(enriched) >= max_tags:
+                    return enriched
+
+        return enriched
     
     def _parse_tags(self, raw_response: str) -> list[str]:
         """Extract tags from raw LLM response, filtered to trained vocabulary.

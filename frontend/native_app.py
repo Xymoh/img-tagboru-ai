@@ -110,16 +110,17 @@ class DescriptionTagWorker(QtCore.QThread):
     finished = QtCore.Signal(DescriptionTagResult)
     error = QtCore.Signal(str)
 
-    def __init__(self, description: str, model: str) -> None:
+    def __init__(self, description: str, model: str, creativity: str) -> None:
         super().__init__()
         self.description = description
         self.model = model
+        self.creativity = creativity
 
     def run(self) -> None:
         """Run tag generation in background thread."""
         try:
             tagger = get_description_tagger(model=self.model)
-            result = tagger.generate_tags(self.description)
+            result = tagger.generate_tags(self.description, creativity=self.creativity)
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
@@ -138,6 +139,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._preview_image: Image.Image | None = None
         self._tag_worker: DescriptionTagWorker | None = None
         self._last_description_tags: list[str] = []
+        self._last_creativity_mode = "creative"
 
         root = QtWidgets.QWidget()
         self.setCentralWidget(root)
@@ -385,6 +387,30 @@ class MainWindow(QtWidgets.QMainWindow):
         model_layout.addWidget(refresh_models_btn)
         
         desc_layout.addWidget(model_group)
+
+        # Creativity mode selection
+        creativity_group = QtWidgets.QGroupBox("Creativity Mode")
+        creativity_layout = QtWidgets.QVBoxLayout(creativity_group)
+
+        creativity_label = QtWidgets.QLabel("How imaginative should generated prompts be?")
+        creativity_label.setStyleSheet("color: #4da6ff; font-size: 9px;")
+        creativity_layout.addWidget(creativity_label)
+
+        self.creativity_selector = QtWidgets.QComboBox()
+        self.creativity_selector.setStyleSheet("background-color: #1a1a1a; color: #ffffff;")
+        self.creativity_selector.addItem("Safe (literal, conservative)", "safe")
+        self.creativity_selector.addItem("Creative (balanced)", "creative")
+        self.creativity_selector.addItem("Extreme (wild ideas)", "extreme")
+        self.creativity_selector.setCurrentIndex(1)
+        creativity_layout.addWidget(self.creativity_selector)
+
+        creativity_hint = QtWidgets.QLabel(
+            "Safe: fewer surprises\nCreative: richer scenes\nExtreme: strongest atmosphere/storytelling expansion"
+        )
+        creativity_hint.setStyleSheet("color: #9ecbff; font-size: 9px;")
+        creativity_layout.addWidget(creativity_hint)
+
+        desc_layout.addWidget(creativity_group)
 
         # Description input section
         input_desc_group = QtWidgets.QGroupBox("Description Input")
@@ -1059,13 +1085,22 @@ class MainWindow(QtWidgets.QMainWindow):
             self.statusbar.showMessage("Tag generation failed.", 5000)
             return
 
+        selected_creativity = self.creativity_selector.currentData() or "creative"
+        self._last_creativity_mode = selected_creativity
+
         # Disable button and show loading state
         self.generate_from_desc_btn.setEnabled(False)
-        self.desc_tags_display.setPlainText("⏳ Generating tags... (this may take a while)\n\n⚠️ TIP: Enable GPU in Ollama for faster generation!")
-        self.statusbar.showMessage("Connecting to Ollama and generating tags...")
+        self.desc_tags_display.setPlainText(
+            "⏳ Generating tags... (this may take a while)\n\n"
+            f"Mode: {selected_creativity.capitalize()}\n"
+            "⚠️ TIP: Enable GPU in Ollama for faster generation!"
+        )
+        self.statusbar.showMessage(
+            f"Connecting to Ollama and generating tags in {selected_creativity} mode..."
+        )
 
         # Create and start worker thread
-        self._tag_worker = DescriptionTagWorker(description, selected_model)
+        self._tag_worker = DescriptionTagWorker(description, selected_model, selected_creativity)
         self._tag_worker.finished.connect(self._on_tags_generated)
         self._tag_worker.error.connect(self._on_tag_generation_error)
         self._tag_worker.start()
@@ -1084,11 +1119,17 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             self._copy_tags_btn.setEnabled(False)
         else:
-            display_text = f"✓ Generated prompt ({len(result.tags)} terms):\n\n{tags_output}"
+            display_text = (
+                f"✓ Generated prompt ({len(result.tags)} terms) "
+                f"[{self._last_creativity_mode.capitalize()} mode]:\n\n{tags_output}"
+            )
             self._copy_tags_btn.setEnabled(True)
         
         self.desc_tags_display.setPlainText(display_text)
-        self.statusbar.showMessage(f"✓ Generated {len(result.tags)} prompt terms.", 5000)
+        self.statusbar.showMessage(
+            f"✓ Generated {len(result.tags)} prompt terms in {self._last_creativity_mode} mode.",
+            5000,
+        )
         self.generate_from_desc_btn.setEnabled(True)
         self._tag_worker = None
 
