@@ -18,4 +18,4 @@ if (-not (Test-Path $python)) {
     --collect-all PySide6 `
     --add-data "frontend;frontend" `
     --add-data "backend;backend" `
-    frontend\native_app.py
+    frontend\native\main_window.py
