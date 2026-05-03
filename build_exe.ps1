@@ -18,4 +18,5 @@ if (-not (Test-Path $python)) {
     --collect-all PySide6 `
     --add-data "frontend;frontend" `
     --add-data "backend;backend" `
+    --add-data "danbooru_tags_post_count.csv;." `
     frontend\native\main_window.py

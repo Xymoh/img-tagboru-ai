@@ -70,7 +70,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
 
         self.setStyleSheet(build_stylesheet())
 
-        # ── Tab widget ────────────────────────────────────────────────────
+        # --- Tab widget --------------------------------------------------------
         self.tabs = QtWidgets.QTabWidget()
         root_layout.addWidget(self.tabs)
 
@@ -249,7 +249,10 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
             "Tags will appear here as comma-separated values...\n"
             "Example: 1girl, smile, blue_eyes, long_hair"
         )
-        self.caption_edit.setToolTip("Edit caption text directly, then click 'Apply' to sync with table")
+        self.caption_edit.setToolTip(
+            "Edit caption text directly, then click 'Apply' to sync with table.\n"
+            "Ctrl+Z / Ctrl+Y to undo/redo changes."
+        )
         caption_layout.addWidget(self.caption_edit)
 
         caption_buttons = QtWidgets.QHBoxLayout()
@@ -259,15 +262,17 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         self.export_btn = QtWidgets.QPushButton("💾 Save Current")
         self.export_btn.setToolTip("Save caption for selected image as .txt file")
         self.export_btn.clicked.connect(self.export_caption)
-        self.export_all_btn = QtWidgets.QPushButton("💾 Save All")
-        self.export_all_btn.setToolTip("Save all captions to a folder")
-        self.export_all_btn.clicked.connect(self.export_all_captions)
+        self.export_beside_btn = QtWidgets.QPushButton("💾 Save Beside Source")
+        self.export_beside_btn.setToolTip(
+            "Save all captions as .txt files next to their source images"
+        )
+        self.export_beside_btn.clicked.connect(self.export_beside_source)
         self.export_zip_btn = QtWidgets.QPushButton("📦 Export ZIP")
         self.export_zip_btn.setToolTip("Download all captions as ZIP file")
         self.export_zip_btn.clicked.connect(self.export_zip)
         caption_buttons.addWidget(self.apply_caption_btn)
         caption_buttons.addWidget(self.export_btn)
-        caption_buttons.addWidget(self.export_all_btn)
+        caption_buttons.addWidget(self.export_beside_btn)
         caption_buttons.addWidget(self.export_zip_btn)
         caption_layout.addLayout(caption_buttons)
         right_panel.addWidget(caption_group, 2)
@@ -411,7 +416,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
 
         self.tabs.addTab(desc_tab, "Description Tagger")
 
-        # ── Status bar ─────────────────────────────────────────────────────
+        # --- Status bar --------------------------------------------------------
         self.statusbar = self.statusBar()
         self.statusbar.showMessage("Ready. Load images to start tagging.")
 
@@ -445,7 +450,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         # Setup caption completer
         self._setup_caption_completer()
 
-        # ── Drop overlay ────────────────────────────────────────────────────
+        # --- Drop overlay ------------------------------------------------------
         self._drop_overlay = QtWidgets.QLabel(self)
         self._drop_overlay.setText("📥\n\nDrop images here\nto upload")
         self._drop_overlay.setAlignment(QtCore.Qt.AlignCenter)
@@ -461,6 +466,18 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
             }
         """)
         self._drop_overlay.setVisible(False)
+
+        # --- Undo / Redo -------------------------------------------------------
+        self._undo_stack: list[tuple[pd.DataFrame, str]] = []
+        self._redo_stack: list[tuple[pd.DataFrame, str]] = []
+        undo_action = QtGui.QAction("Undo", self)
+        undo_action.setShortcut(QtGui.QKeySequence.Undo)
+        undo_action.triggered.connect(self._undo)
+        self.addAction(undo_action)
+        redo_action = QtGui.QAction("Redo", self)
+        redo_action.setShortcut(QtGui.QKeySequence("Ctrl+Y"))
+        redo_action.triggered.connect(self._redo)
+        self.addAction(redo_action)
 
     # ==================================================================
     # event filter (overrides QMainWindow)
@@ -501,7 +518,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
 
     def _set_export_enabled(self, enabled: bool) -> None:
         self.export_btn.setEnabled(enabled)
-        self.export_all_btn.setEnabled(enabled)
+        self.export_beside_btn.setEnabled(enabled)
         self.export_zip_btn.setEnabled(enabled)
 
     def _selected_categories(self) -> set[str]:
@@ -1142,7 +1159,54 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
             self._drop_overlay.setGeometry(rect)
 
     # ==================================================================
-    # Table ↔ frame ↔ caption sync
+    # Undo / Redo
+    # ==================================================================
+
+    def _push_undo_state(self) -> None:
+        """Snapshot current result before a mutation for undo support."""
+        r = self._current_result()
+        if r is None:
+            return
+        state = (r.frame.copy(), r.caption)
+        if self._undo_stack and self._undo_stack[-1][1] == state[1]:
+            return  # debounce duplicate captions
+        self._undo_stack.append(state)
+        self._redo_stack.clear()
+
+    def _undo(self) -> None:
+        """Restore the previous frame + caption state."""
+        if not self._undo_stack:
+            return
+        r = self._current_result()
+        if r:
+            self._redo_stack.append((r.frame.copy(), r.caption))
+        frame, caption = self._undo_stack.pop()
+        if r:
+            r.frame = frame
+            r.caption = caption
+            self._frame_to_table(frame)
+            self.caption_edit.blockSignals(True)
+            self.caption_edit.setPlainText(caption)
+            self.caption_edit.blockSignals(False)
+
+    def _redo(self) -> None:
+        """Re-apply a previously undone state."""
+        if not self._redo_stack:
+            return
+        r = self._current_result()
+        if r:
+            self._undo_stack.append((r.frame.copy(), r.caption))
+        frame, caption = self._redo_stack.pop()
+        if r:
+            r.frame = frame
+            r.caption = caption
+            self._frame_to_table(frame)
+            self.caption_edit.blockSignals(True)
+            self.caption_edit.setPlainText(caption)
+            self.caption_edit.blockSignals(False)
+
+    # ==================================================================
+    # Table <-> frame <-> caption sync
     # ==================================================================
 
     def _frame_to_table(self, frame: pd.DataFrame) -> None:
@@ -1217,32 +1281,95 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         return frame
 
     def on_table_changed(self, *_args) -> None:
+        """Surgically update the caption when a checkbox or rank is edited.
+
+        Instead of rebuilding the whole caption from the frame (which
+        would discard user-added custom tags), we only add or remove
+        the specific tag that was toggled.
+        """
+        self._push_undo_state()
         result = self._current_result()
         if result is None:
             return
-        result.frame = self._table_to_frame()
-        result.caption = frame_to_caption(result.frame, include_scores=self.include_scores.isChecked())
+        new_frame = self._table_to_frame()
+        old_frame = result.frame
+
+        # Current caption tags (preserves user customizations)
+        caption_tags = split_tags(self.caption_edit.toPlainText())
+        caption_lower = {t.lower() for t in caption_tags}
+
+        # Diff include flags: add newly-checked tags, remove newly-unchecked
+        for _, new_row in new_frame.iterrows():
+            tag = str(new_row["tag"])
+            tag_lower = tag.lower()
+            new_included = bool(new_row["include"])
+
+            old_match = old_frame[
+                old_frame["tag"].astype(str).str.lower() == tag_lower
+            ]
+            old_included = (
+                bool(old_match.iloc[0]["include"])
+                if not old_match.empty
+                else new_included
+            )
+
+            if new_included and not old_included:
+                if tag_lower not in caption_lower:
+                    caption_tags.append(tag)
+            elif not new_included and old_included:
+                caption_tags = [t for t in caption_tags if t.lower() != tag_lower]
+
+        result.frame = new_frame
+        result.caption = ", ".join(caption_tags) if caption_tags else ""
         self.caption_edit.blockSignals(True)
         self.caption_edit.setPlainText(result.caption)
         self.caption_edit.blockSignals(False)
 
     def apply_caption_text(self) -> None:
+        """Sync user-edited caption back to the table.
+
+        The caption text is treated as the source of truth.  Existing
+        rows get their ``include`` and ``rank`` updated.  Tags the user
+        typed that have no matching row are added as new rows with
+        category ``custom`` so the table fully reflects the caption.
+        """
+        self._push_undo_state()
         result = self._current_result()
         if result is None:
             return
-        tags = split_tags(self.caption_edit.toPlainText())
-        tag_order = {tag.lower(): index + 1 for index, tag in enumerate(tags)}
-        frame = result.frame.copy()
+        caption_text = self.caption_edit.toPlainText().strip()
+        result.caption = caption_text
+        tags = split_tags(caption_text)
+        tag_order = {tag.lower(): idx + 1 for idx, tag in enumerate(tags)}
         lower_tags = {tag.lower() for tag in tags}
+        frame = result.frame.copy()
+
+        # --- user-typed tags not yet in the frame -> add as custom rows ---
+        existing_lower = set(frame["tag"].astype(str).str.lower())
+        new_rows: list[dict] = []
+        for idx, tag in enumerate(tags):
+            if tag.lower() not in existing_lower:
+                new_rows.append({
+                    "include": True,
+                    "rank": idx + 1,
+                    "tag": tag,
+                    "confidence": 0.0,
+                    "category": "custom",
+                })
+        if new_rows:
+            frame = pd.concat(
+                [frame, pd.DataFrame(new_rows)], ignore_index=True
+            )
+
+        # --- update existing rows ---
         frame["include"] = frame["tag"].astype(str).str.lower().isin(lower_tags)
-        frame["rank"] = [tag_order.get(str(tag).lower(), 9999) for tag in frame["tag"]]
+        frame["rank"] = [
+            tag_order.get(str(tag).lower(), 9999)
+            for tag in frame["tag"]
+        ]
         frame = sort_frame(frame, self.sort_mode.currentText())
         result.frame = frame
-        result.caption = frame_to_caption(frame, include_scores=self.include_scores.isChecked())
         self._frame_to_table(frame)
-        self.caption_edit.blockSignals(True)
-        self.caption_edit.setPlainText(result.caption)
-        self.caption_edit.blockSignals(False)
 
     # ==================================================================
     # Description tagger (Tab 2)
@@ -1356,6 +1483,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
     # ==================================================================
 
     def export_caption(self) -> None:
+        """Save the current caption as a .txt file (with file dialog)."""
         result = self._current_result()
         if result is None or result.path is None:
             return
@@ -1369,21 +1497,23 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         Path(path).write_text(result.caption, encoding="utf-8")
         self.statusbar.showMessage(f"Saved caption to {path}")
 
-    def export_all_captions(self) -> None:
+    def export_beside_source(self) -> None:
+        """Save every caption as a .txt file next to its source image."""
         if not self.results:
             return
         self._sync_current_result()
-        folder = QtWidgets.QFileDialog.getExistingDirectory(
-            self, "Choose output folder", str(Path.cwd())
-        )
-        if not folder:
-            return
-        output = Path(folder)
-        for result in self.results:
-            if result.path is None:
+        saved = 0
+        for r in self.results:
+            if r.path is None:
                 continue
-            (output / f"{result.path.stem}.txt").write_text(result.caption, encoding="utf-8")
-        self.statusbar.showMessage(f"Saved {len(self.results)} caption files.")
+            txt_path = r.path.with_suffix(".txt")
+            try:
+                txt_path.write_text(r.caption, encoding="utf-8")
+                saved += 1
+            except OSError as e:
+                self.statusbar.showMessage(f"Error saving {txt_path.name}: {e}", 5000)
+                return
+        self.statusbar.showMessage(f"Saved {saved} caption(s) beside source images.")
 
     def export_zip(self) -> None:
         if not self.results:
