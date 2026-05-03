@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import os
+import sys
 from pathlib import Path
 
 from PySide6 import QtCore, QtWidgets
@@ -18,12 +19,31 @@ class CaptionCompleterMixin:
 
     # ---------- tag loading ---------------------------------------------------
 
+    @staticmethod
+    def _find_data_file(filename: str) -> Path | None:
+        """Locate a bundled data file (works in dev and PyInstaller builds)."""
+        # PyInstaller onefile extraction directory
+        base = getattr(sys, '_MEIPASS', None)
+        if base:
+            candidate = Path(base) / filename
+            if candidate.exists():
+                return candidate
+        # Development: relative to the project root (two levels above this file)
+        candidate = Path(__file__).resolve().parents[2] / filename
+        if candidate.exists():
+            return candidate
+        # Fallback: current working directory
+        candidate = Path.cwd() / filename
+        if candidate.exists():
+            return candidate
+        return None
+
     def _load_danbooru_tags(self) -> list[str]:
         """Load Danbooru tags from CSV file for autocomplete."""
-        csv_path = Path(__file__).resolve().parents[2] / "danbooru_tags_post_count.csv"
+        csv_path = self._find_data_file("danbooru_tags_post_count.csv")
 
-        if not csv_path.exists():
-            print(f"Danbooru tags file not found: {csv_path}")
+        if csv_path is None:
+            print("Danbooru tags file not found (danbooru_tags_post_count.csv)")
             return []
 
         tags: list[str] = []
@@ -101,8 +121,17 @@ class CaptionCompleterMixin:
 
     # ---------- popup management ----------------------------------------------
 
+    @staticmethod
+    def _normalize_tag(s: str) -> str:
+        """Strip underscores, dashes and spaces for fuzzy comparison."""
+        return s.replace('_', '').replace('-', '').replace(' ', '').lower()
+
     def _on_caption_text_changed(self) -> None:
-        """Show tag suggestions as the user types in caption_edit."""
+        """Show tag suggestions as the user types in caption_edit.
+
+        Matching is fuzzy: ``onback``, ``on back`` and ``on-back``
+        all match the Danbooru tag ``on_back``.
+        """
         if self._completing or not self.danbooru_tags or not hasattr(self, '_completer_popup'):
             return
 
@@ -112,10 +141,10 @@ class CaptionCompleterMixin:
             self._hide_completer()
             return
 
-        token_lower = token.lower()
+        token_norm = self._normalize_tag(token)
         matches: list[str] = []
         for tag in self.danbooru_tags:
-            if tag.startswith(token_lower):
+            if self._normalize_tag(tag).startswith(token_norm):
                 matches.append(tag)
                 if len(matches) >= 20:
                     break
