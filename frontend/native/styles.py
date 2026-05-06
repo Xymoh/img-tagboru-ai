@@ -179,6 +179,54 @@ def build_stylesheet() -> str:
             color: #775577;
             border: 1px solid #3a2a3d;
         }
+        QPushButton#copyPromptBtn {
+            background-color: #1a3a5c;
+            color: #aaddff;
+            font-weight: bold;
+            font-size: 10px;
+            padding: 6px 12px;
+            border: 1px solid #3a6a9a;
+        }
+        QPushButton#copyPromptBtn:hover {
+            background-color: #284a70;
+            border: 1px solid #4da6ff;
+            color: #cceeff;
+        }
+        QPushButton#copyPromptBtn:pressed {
+            background-color: #0f2a44;
+        }
+        QPushButton#negPromptBtn {
+            background-color: #5c1a1a;
+            color: #ffaaaa;
+            font-weight: bold;
+            font-size: 10px;
+            padding: 6px 12px;
+            border: 1px solid #9a3a3a;
+        }
+        QPushButton#negPromptBtn:hover {
+            background-color: #702828;
+            border: 1px solid #cc4444;
+            color: #ffcccc;
+        }
+        QPushButton#negPromptBtn:pressed {
+            background-color: #440f0f;
+        }
+        QPushButton#tagFreqBtn {
+            background-color: #3a3a1a;
+            color: #ffffaa;
+            font-weight: bold;
+            font-size: 10px;
+            padding: 6px 12px;
+            border: 1px solid #7a7a3a;
+        }
+        QPushButton#tagFreqBtn:hover {
+            background-color: #5a5a28;
+            border: 1px solid #cccc44;
+            color: #ffffcc;
+        }
+        QPushButton#tagFreqBtn:pressed {
+            background-color: #2a2a0f;
+        }
         QLabel#alertLabel {
             color: #ff9933;
             font-weight: bold;
