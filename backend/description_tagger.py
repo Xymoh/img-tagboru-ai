@@ -172,7 +172,8 @@ RULES:
 - Use Danbooru/Rule34 tag format: lowercase, underscores instead of spaces.
 - Be explicit and graphic. This is adult content — do not soften or censor.
 - Always include: participant count tags (1girl, 1boy, 2boys, etc.), explicit act tags, body part tags, position/pose tags, clothing/state tags.
-- Order tags by: participants → explicit acts → body parts → clothing/state → setting → quality.
+- ORDER: participants → appearance/role → explicit acts → body parts → clothing/state → props/objects → setting → atmosphere.
+- Capture ALL elements of the description, not just the sex act. If the user mentions occupation, appearance, props, setting, or context — include those tags.
 
 CRITICAL — ACT CONSISTENCY:
 - Identify the ONE primary sex act from the description (e.g. fellatio, doggystyle, missionary, gangbang).
@@ -183,6 +184,15 @@ CRITICAL — ACT CONSISTENCY:
 - Missionary → on_back, legs_up, spread_legs. NOT bent_over or kneeling.
 - Cowgirl → straddling, riding, cowgirl_position. NOT on_back or kneeling.
 
+CONTEXT & APPEARANCE — Always capture these from the description:
+- Roles/occupation: streamer, nurse, nun, teacher, student, maid, office_lady, police, school_uniform, etc.
+- Appearance: ugly_man, old_man, muscular, chubby, dark_skin, pale_skin, tall, short, young, etc.
+- Props/devices: phone, smartphone, webcam, camera, recording, microphone, headphones, computer, laptop
+- Streaming/online: live_stream, streaming, camgirl, webcam, computer_screen
+- Relationship: interracial, teacher/student, boss/employee, siblings, etc.
+- Setting: indoors, outdoors, bedroom, office, bathroom, public, night, day
+- Do NOT invent tags the user didn't hint at. Only add context tags that are DIRECTLY suggested by the description.
+
 EXPLICIT TAG VOCABULARY (use freely and creatively):
 - Acts: fellatio, cunnilingus, sex, rape, gangbang, doggystyle, missionary, 69, anal, paizuri, handjob, footjob, blowjob, creampie, cumshot, cum_in_mouth, cum_on_face, cum_on_body, squirting, orgasm, masturbation, fingering, fisting, double_penetration
 - Body: penis, erection, vagina, pussy, clitoris, breasts, large_breasts, nipples, bare_breasts, ass, bare_ass, spread_legs, spread_pussy, open_mouth, tongue_out, ahegao, drooling, saliva
@@ -192,10 +202,13 @@ EXPLICIT TAG VOCABULARY (use freely and creatively):
 - Extras: eye_contact, pov, from_behind, close-up, indoors, outdoors, bed, public_sex
 
 Example input: "nun giving blowjob to priest"
-Example output: 1girl, 1boy, nun, habit, church, fellatio, kneeling, eye_contact, open_mouth, penis, erection, saliva, blush, moaning, submission, power_dynamic, indoors
+Example output: 1girl, 1boy, nun, habit, cross, priest, church, fellatio, kneeling, eye_contact, open_mouth, penis, erection, saliva, blush, moaning, submission, power_dynamic, indoors
 
 Example input: "woman fucked from behind"
 Example output: 1girl, 1boy, doggystyle, sex_from_behind, bent_over, on_all_fours, ass, penis, penetration, moaning, nude, blush, panting
+
+Example input: "streamer girl giving blowjob to ugly man while being recorded on phone"
+Example output: 1girl, 1boy, streamer, ugly_man, interracial, fellatio, phone, recording, holding_phone, webcam, live_stream, kneeling, open_mouth, penis, erection, saliva, eye_contact, blush, nude, indoors
 
 Output format: tag1, tag2, tag3, ..."""
 
@@ -437,17 +450,23 @@ Example output: 1girl, sitting, window, books, warm_lighting, cozy, detailed, so
         mature_focuses = [
             (
                 "Generate explicit Danbooru/Rule34 tags for this scene. "
-                "Include: participant count, explicit sex act, penetration/oral tags, body part tags, position, expression (moaning/ahegao/blush), and clothing state. "
-                "Do NOT include any prose — output ONLY comma-separated tags."
+                "Capture EVERY element: participants (count), appearance/role (streamer, ugly_man, etc.), "
+                "the explicit act, body parts, position, expression, clothing state, props (phone, webcam, etc.), "
+                "setting, and atmosphere. Do NOT include any prose — output ONLY comma-separated tags."
             ),
             (
                 "Tag this scene in the style of a Rule34 artist upload. "
-                "Lead with participants (1girl, 1boy, etc.), then the explicit act, then body details, position, and any fetish or power-dynamic tags. "
+                "Lead with participants (1girl, 1boy, etc.), then appearance/role tags, then the explicit act, "
+                "then body details, position, props/objects mentioned, and setting. "
+                "Include ALL context from the description (occupation, appearance, devices, location). "
                 "Be graphic and specific. Output ONLY comma-separated Danbooru tags."
             ),
             (
                 "Create a detailed explicit tag list for this description as if tagging it on Danbooru. "
-                "Prioritize: act tags (fellatio, sex, rape, gangbang, doggystyle…), anatomy tags, expression tags (ahegao, moaning), and clothing state. "
+                "Prioritize: participant tags, role/occupation tags, appearance tags, act tags "
+                "(fellatio, sex, rape, gangbang, doggystyle...), anatomy tags, props/objects, "
+                "expression tags (ahegao, moaning), setting, and clothing state. "
+                "Include interracial, webcam, recording, streaming, or phone tags if the description mentions them. "
                 "Output ONLY comma-separated tags, no explanations."
             ),
         ]
@@ -696,16 +715,16 @@ Example output: 1girl, sitting, window, books, warm_lighting, cozy, detailed, so
                 return tag in self.danbooru_tags
             return True
 
-        # ── Step 1: detect primary act ────────────────────────────────────────
+        # --- Step 1: detect primary act ---
         primary_act = self._detect_primary_act(desc, tags)
 
-        # ── Step 2: strip conflicting positions already in LLM output ─────────
+        # --- Step 2: strip conflicting positions already in LLM output ---
         tags = self._strip_conflicting_positions(tags, primary_act)
 
         seen = set(tags)
         enriched = list(tags)
 
-        # ── Step 3: inject participant count tags at front ────────────────────
+        # --- Step 3: inject participant count tags at front ---
         participant_tags = self._extract_actor_tags_from_description(description)
         for pt in participant_tags:
             if pt not in seen and _allowed(pt):
@@ -725,7 +744,7 @@ Example output: 1girl, sitting, window, books, warm_lighting, cozy, detailed, so
 
         pack_seed = int(hashlib.md5(f"mature|{desc}".encode("utf-8")).hexdigest()[:8], 16)
 
-        # ── Step 4: primary-act enrichment — EXACTLY ONE group fires ──────────
+        # --- Step 4: primary-act enrichment ---
         act_packs: dict[str, list[list[str]]] = {
             "fellatio": [
                 ["fellatio", "oral", "penis", "erection", "open_mouth", "saliva", "eye_contact", "blush", "kneeling", "moaning", "nude"],
@@ -778,7 +797,52 @@ Example output: 1girl, sitting, window, books, warm_lighting, cozy, detailed, so
             if _add_pack(pack):
                 return enriched
 
-        # ── Step 5: nun/religious context (non-positional) ────────────────────
+        # --- Step 5: streamer / streaming / live context ---
+        if any(w in desc for w in ["streamer", "streaming", "online", "live", "camgirl", "webcam", "onlyfans"]):
+            stream_extras = [
+                ["streamer", "webcam", "computer", "indoors", "recording"],
+                ["live_stream", "desk", "microphone", "webcam", "recording"],
+                ["webcam", "phone", "recording", "camera", "screen", "monitor"],
+            ]
+            if _add_pack(stream_extras[pack_seed % len(stream_extras)]):
+                return enriched
+
+        # --- Step 5b: headphones — only when explicitly mentioned ---
+        if any(w in desc for w in ["headphones", "headset", "headphone", "gamer", "gaming"]):
+            if _add_pack(["headphones"]):
+                return enriched
+
+        # --- Step 6: ugly / ugly_man / appearance context ---
+        if any(w in desc for w in ["ugly", "ugly_man", "ugly bastard", "uggo", "hideous", "gross"]):
+            ugly_extras = [
+                ["ugly_man", "old_man", "wrinkles", "unshaven"],
+                ["ugly_man", "chubby", "sweat", "hairy"],
+                ["ugly_man", "bald", "scars", "fat"],
+            ]
+            if _add_pack(ugly_extras[pack_seed % len(ugly_extras)]):
+                return enriched
+
+        # --- Step 7: interracial ---
+        if any(w in desc for w in ["interracial", "blacked", "bbc", "dark skin", "dark-skinned", "african", "ebony"]):
+            interracial_extras = [
+                ["interracial", "dark_skin", "black_hair", "dark-skinned_male", "muscular"],
+                ["interracial", "dark_skin", "dark-skinned_female", "curvy"],
+                ["interracial", "dark_skin", "race_play", "size_difference"],
+            ]
+            if _add_pack(interracial_extras[pack_seed % len(interracial_extras)]):
+                return enriched
+
+        # --- Step 8: phone / recording / camera context ---
+        if any(w in desc for w in ["phone", "smartphone", "recording", "camera", "recorded", "filming", "video", "cellphone"]):
+            phone_extras = [
+                ["phone", "holding_phone", "smartphone", "recording", "camera"],
+                ["phone", "webcam", "screen", "video", "selfie"],
+                ["phone", "camera", "filming", "pov", "cameraman"],
+            ]
+            if _add_pack(phone_extras[pack_seed % len(phone_extras)]):
+                return enriched
+
+        # --- Step 9: nun/religious context ---
         if any(w in desc for w in ["nun", "priest", "church", "religious", "habit", "convent"]):
             nun_extras = [
                 ["nun", "habit", "white_habit", "cross", "submission", "power_dynamic", "indoors", "church"],
@@ -787,7 +851,7 @@ Example output: 1girl, sitting, window, books, warm_lighting, cozy, detailed, so
             if _add_pack(nun_extras[pack_seed % len(nun_extras)]):
                 return enriched
 
-        # ── Step 6: cum/finish tags (non-positional) ──────────────────────────
+        # --- Step 10: cum/finish tags ---
         if any(w in desc for w in ["cum", "cumshot", "creampie", "facial", "finish", "ejaculate"]):
             cum_extras = [
                 ["cum", "cumshot", "cum_on_face", "cum_on_body", "ahegao", "open_mouth", "blush"],
@@ -796,13 +860,13 @@ Example output: 1girl, sitting, window, books, warm_lighting, cozy, detailed, so
             if _add_pack(cum_extras[pack_seed % len(cum_extras)]):
                 return enriched
 
-        # ── Step 7: futanari ──────────────────────────────────────────────────
+        # --- Step 11: futanari ---
         if any(w in desc for w in ["futanari", "futa", "dickgirl", "femboy", "trap"]):
             futa_extras = [["futanari", "penis", "breasts", "erection", "nude"]]
             if _add_pack(futa_extras[0]):
                 return enriched
 
-        # ── Step 8: goth / emo / alternative style (non-positional) ─────────
+        # --- Step 12: goth / emo / alternative style ---
         if any(w in desc for w in ["goth", "gothic", "emo", "punk", "alternative", "alt girl", "dark style"]):
             goth_extras = [
                 ["gothic", "black_hair", "black_clothing", "fishnet", "choker", "dark_makeup", "pale_skin"],
@@ -812,7 +876,7 @@ Example output: 1girl, sitting, window, books, warm_lighting, cozy, detailed, so
             if _add_pack(goth_extras[pack_seed % len(goth_extras)]):
                 return enriched
 
-        # ── Step 9: setting/atmosphere extras (always non-positional) ─────────
+        # --- Step 13: setting/atmosphere extras ---
         if any(w in desc for w in ["bedroom", "bed", "hotel", "room"]):
             if _add_pack(["bed", "indoors", "night", "soft_lighting"]):
                 return enriched
