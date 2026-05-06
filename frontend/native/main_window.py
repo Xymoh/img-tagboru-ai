@@ -13,6 +13,7 @@ from uuid import uuid4
 import pandas as pd
 from PIL import Image, UnidentifiedImageError
 from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6.QtCore import QTimer
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
@@ -25,8 +26,10 @@ from backend.tag_utils import (
     TaggingResult,
     apply_filters,
     export_zip_from_results,
+    extract_ai_metadata,
     frame_from_predictions,
     frame_to_caption,
+    metadata_to_tags,
     sort_frame,
     split_tags,
 )
@@ -34,7 +37,7 @@ from backend.tag_utils import (
 from frontend.native.completer import CaptionCompleterMixin
 from frontend.native.styles import build_stylesheet
 from frontend.native.widgets import HelpDialog
-from frontend.native.workers import DescriptionTagWorker
+from frontend.native.workers import DescriptionTagWorker, ImageLoadWorker
 
 
 # ---------------------------------------------------------------------------
@@ -54,10 +57,20 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         self._active_result_index = -1
         self._preview_image: Image.Image | None = None
         self._tag_worker: DescriptionTagWorker | None = None
+        self._image_load_worker: ImageLoadWorker | None = None
         self._last_description_tags: list[str] = []
         self._last_creativity_mode = "creative"
         self.danbooru_tags: list[str] = []
         self.caption_completer: QtWidgets.QCompleter | None = None
+
+        # Watch-folder auto-tagging
+        self._watcher: QtCore.QFileSystemWatcher | None = None
+        self._watch_dir: Path | None = None
+        self._watch_timer: QTimer = QTimer(self)
+        self._watch_timer.setSingleShot(True)
+        self._watch_timer.setInterval(800)  # 800ms debounce
+        self._watch_timer.timeout.connect(self._on_watch_timer)
+        self._watch_pending: set[Path] = set()
 
         # Load Danbooru tags for autocomplete
         self.danbooru_tags = self._load_danbooru_tags()
@@ -90,13 +103,30 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         input_layout = QtWidgets.QVBoxLayout(input_group)
         input_layout.setSpacing(8)
 
-        button_row = QtWidgets.QHBoxLayout()
+        # --- Row 1: File operations + watch folder ---
+        file_row = QtWidgets.QHBoxLayout()
+        file_row.setSpacing(6)
         self.open_images_btn = QtWidgets.QPushButton("🖼️ Open Images")
         self.open_images_btn.setToolTip("Select one or more image files to tag")
         self.open_images_btn.clicked.connect(self.open_images)
         self.open_folder_btn = QtWidgets.QPushButton("📂 Open Folder")
         self.open_folder_btn.setToolTip("Select a folder containing images\n(Can include subfolders on user choice)")
         self.open_folder_btn.clicked.connect(self.open_folder)
+        self.watch_folder_cb = QtWidgets.QCheckBox("👁 Watch Folder (Auto-Load)")
+        self.watch_folder_cb.setToolTip(
+            "Automatically load new images saved to the last-opened folder.\n"
+            "Ideal for ComfyUI output directories — tags appear as images render."
+        )
+        self.watch_folder_cb.toggled.connect(self._toggle_watch_folder)
+        file_row.addWidget(self.open_images_btn)
+        file_row.addWidget(self.open_folder_btn)
+        file_row.addWidget(self.watch_folder_cb)
+        file_row.addStretch(1)
+        input_layout.addLayout(file_row)
+
+        # --- Row 2: Tagging actions ---
+        tag_row = QtWidgets.QHBoxLayout()
+        tag_row.setSpacing(6)
         self.tag_selected_btn = QtWidgets.QPushButton("⚡ Tag Selected")
         self.tag_selected_btn.setObjectName("tagSelectedBtn")
         self.tag_selected_btn.setToolTip("Tag only the currently selected image")
@@ -106,11 +136,17 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         self.tag_btn.setObjectName("tagBtn")
         self.tag_btn.setToolTip("Start tagging all loaded images with current settings")
         self.tag_btn.clicked.connect(self.process_pending)
-        button_row.addWidget(self.open_images_btn)
-        button_row.addWidget(self.open_folder_btn)
-        button_row.addWidget(self.tag_selected_btn)
-        button_row.addWidget(self.tag_btn)
-        input_layout.addLayout(button_row)
+        self.ai_meta_btn = QtWidgets.QPushButton("✅ Extract Positive Prompts")
+        self.ai_meta_btn.setObjectName("aiMetaBtn")
+        self.ai_meta_btn.setToolTip("Read AI generation parameters embedded in the\n"
+                                     "currently selected image (SD/A1111/ComfyUI) and treat them as tags, if exists")
+        self.ai_meta_btn.clicked.connect(self._extract_ai_metadata_for_current)
+        self.ai_meta_btn.setEnabled(False)
+        tag_row.addWidget(self.tag_selected_btn)
+        tag_row.addWidget(self.tag_btn)
+        tag_row.addWidget(self.ai_meta_btn)
+        tag_row.addStretch(1)
+        input_layout.addLayout(tag_row)
 
         drop_hint = QtWidgets.QLabel(
             "💡 Tip: Drag & drop images/folders here, or press Ctrl+V to paste from clipboard"
@@ -157,15 +193,17 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         form.setSpacing(8)
 
         self.general_threshold = QtWidgets.QDoubleSpinBox()
+        self.general_threshold.setObjectName("generalThreshold")
         self.general_threshold.setRange(0.0, 1.0)
         self.general_threshold.setSingleStep(0.01)
         self.general_threshold.setValue(0.6)
         self.general_threshold.setToolTip(
-            "Lower = more tags (0.25-0.40 recommended)\nHigher = only very confident tags"
+            "Lower = more tags (0.5-0.7 recommended)\nHigher = only very confident tags"
         )
         self.general_threshold.setStyleSheet("color: #66ff66; font-weight: bold;")
 
         self.character_threshold = QtWidgets.QDoubleSpinBox()
+        self.character_threshold.setObjectName("characterThreshold")
         self.character_threshold.setRange(0.0, 1.0)
         self.character_threshold.setSingleStep(0.01)
         self.character_threshold.setValue(0.85)
@@ -175,6 +213,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         self.character_threshold.setStyleSheet("color: #ff66a3; font-weight: bold;")
 
         self.max_tags = QtWidgets.QSpinBox()
+        self.max_tags.setObjectName("maxTags")
         self.max_tags.setRange(5, 200)
         self.max_tags.setValue(40)
         self.max_tags.setToolTip("Limit tags per image (40-80 is typical for training)")
@@ -255,10 +294,22 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         )
         caption_layout.addWidget(self.caption_edit)
 
-        caption_buttons = QtWidgets.QHBoxLayout()
         self.apply_caption_btn = QtWidgets.QPushButton("🔄 Apply Caption")
         self.apply_caption_btn.setToolTip("Update table from edited caption text")
         self.apply_caption_btn.clicked.connect(self.apply_caption_text)
+        self.copy_prompt_btn = QtWidgets.QPushButton("📋 Copy as Prompt")
+        self.copy_prompt_btn.setObjectName("copyPromptBtn")
+        self.copy_prompt_btn.setToolTip(
+            "Copy current caption as a ComfyUI-compatible prompt string\n"
+            "(underscores → spaces). Paste directly into ComfyUI."
+        )
+        self.copy_prompt_btn.clicked.connect(self._copy_as_prompt)
+        self.neg_prompt_btn = QtWidgets.QPushButton("🚫 Build Negative")
+        self.neg_prompt_btn.setObjectName("negPromptBtn")
+        self.neg_prompt_btn.setToolTip(
+            "Build a Negative prompt from excluded/blacklisted tags"
+        )
+        self.neg_prompt_btn.clicked.connect(self._build_negative_prompt)
         self.export_btn = QtWidgets.QPushButton("💾 Save Current")
         self.export_btn.setToolTip("Save caption for selected image as .txt file")
         self.export_btn.clicked.connect(self.export_caption)
@@ -270,11 +321,75 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         self.export_zip_btn = QtWidgets.QPushButton("📦 Export ZIP")
         self.export_zip_btn.setToolTip("Download all captions as ZIP file")
         self.export_zip_btn.clicked.connect(self.export_zip)
-        caption_buttons.addWidget(self.apply_caption_btn)
-        caption_buttons.addWidget(self.export_btn)
-        caption_buttons.addWidget(self.export_beside_btn)
-        caption_buttons.addWidget(self.export_zip_btn)
-        caption_layout.addLayout(caption_buttons)
+        self.tag_freq_btn = QtWidgets.QPushButton("📊 Tag Stats")
+        self.tag_freq_btn.setObjectName("tagFreqBtn")
+        self.tag_freq_btn.setToolTip("View tag frequency across all loaded results")
+        self.tag_freq_btn.clicked.connect(self._show_tag_frequency)
+        # Single-row caption toolbar with logical groups and separators
+        toolbar_row = QtWidgets.QHBoxLayout()
+        toolbar_row.setSpacing(0)
+
+        # --- Group 1: Caption editing ---
+        toolbar_row.addWidget(self.apply_caption_btn)
+
+        # separator
+        sep1 = QtWidgets.QFrame()
+        sep1.setFrameShape(QtWidgets.QFrame.VLine)
+        sep1.setFrameShadow(QtWidgets.QFrame.Sunken)
+        sep1.setStyleSheet("color: #444;")
+        sep1.setFixedWidth(2)
+        toolbar_row.addSpacing(8)
+        toolbar_row.addWidget(sep1)
+        toolbar_row.addSpacing(8)
+
+        # --- Group 2: Prompt-related ---
+        toolbar_row.addWidget(self.copy_prompt_btn)
+        toolbar_row.addSpacing(4)
+        toolbar_row.addWidget(self.neg_prompt_btn)
+
+        # separator
+        sep2 = QtWidgets.QFrame()
+        sep2.setFrameShape(QtWidgets.QFrame.VLine)
+        sep2.setFrameShadow(QtWidgets.QFrame.Sunken)
+        sep2.setStyleSheet("color: #444;")
+        sep2.setFixedWidth(2)
+        toolbar_row.addSpacing(8)
+        toolbar_row.addWidget(sep2)
+        toolbar_row.addSpacing(8)
+
+        # --- Group 3: Single-image save ---
+        toolbar_row.addWidget(self.export_btn)
+
+        # separator
+        sep3 = QtWidgets.QFrame()
+        sep3.setFrameShape(QtWidgets.QFrame.VLine)
+        sep3.setFrameShadow(QtWidgets.QFrame.Sunken)
+        sep3.setStyleSheet("color: #444;")
+        sep3.setFixedWidth(2)
+        toolbar_row.addSpacing(8)
+        toolbar_row.addWidget(sep3)
+        toolbar_row.addSpacing(8)
+
+        # --- Group 4: Batch export ---
+        toolbar_row.addWidget(self.export_beside_btn)
+        toolbar_row.addSpacing(4)
+        toolbar_row.addWidget(self.export_zip_btn)
+
+        # separator
+        sep4 = QtWidgets.QFrame()
+        sep4.setFrameShape(QtWidgets.QFrame.VLine)
+        sep4.setFrameShadow(QtWidgets.QFrame.Sunken)
+        sep4.setStyleSheet("color: #444;")
+        sep4.setFixedWidth(2)
+        toolbar_row.addSpacing(8)
+        toolbar_row.addWidget(sep4)
+        toolbar_row.addSpacing(8)
+
+        # --- Group 5: Analysis ---
+        toolbar_row.addWidget(self.tag_freq_btn)
+        toolbar_row.addStretch(1)
+
+        caption_layout.addLayout(toolbar_row)
         right_panel.addWidget(caption_group, 2)
 
         self.tabs.addTab(batch_tab, "Batch Tagger")
@@ -467,6 +582,47 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         """)
         self._drop_overlay.setVisible(False)
 
+        self._loading_overlay = QtWidgets.QFrame(self)
+        self._loading_overlay.setObjectName("loadingOverlay")
+        self._loading_overlay.setVisible(False)
+        loading_layout = QtWidgets.QVBoxLayout(self._loading_overlay)
+        loading_layout.setAlignment(QtCore.Qt.AlignCenter)
+        loading_spinner = QtWidgets.QLabel("\u23f3")
+        loading_spinner.setStyleSheet("font-size: 48px; color: #4da6ff; background: transparent;")
+        loading_spinner.setAlignment(QtCore.Qt.AlignCenter)
+        loading_label = QtWidgets.QLabel("Loading images...")
+        loading_label.setStyleSheet(
+            "font-size: 16px; color: #4da6ff; font-weight: bold; background: transparent;"
+        )
+        loading_label.setAlignment(QtCore.Qt.AlignCenter)
+        self._loading_detail = QtWidgets.QLabel("")
+        self._loading_detail.setStyleSheet(
+            "font-size: 12px; color: #9ecbff; background: transparent;"
+        )
+        self._loading_detail.setAlignment(QtCore.Qt.AlignCenter)
+        self._loading_progress = QtWidgets.QProgressBar()
+        self._loading_progress.setMaximumWidth(300)
+        self._loading_progress.setFormat("Validating: %p%")
+        self._loading_progress.setStyleSheet(
+            "QProgressBar { border: 1px solid #4da6ff; border-radius: 4px; "
+            "background-color: #0d0d0d; text-align: center; color: white; }"
+            "QProgressBar::chunk { background-color: #0059b3; border-radius: 3px; }"
+        )
+        loading_layout.addWidget(loading_spinner)
+        loading_layout.addWidget(loading_label)
+        loading_layout.addWidget(self._loading_detail)
+        loading_layout.addSpacing(10)
+        loading_layout.addWidget(self._loading_progress, 0, QtCore.Qt.AlignCenter)
+        self._loading_overlay.setStyleSheet("""
+            QFrame#loadingOverlay {
+                background-color: rgba(0, 0, 0, 210);
+                border-radius: 20px;
+            }
+        """)
+
+        paste_shortcut = QtGui.QShortcut(QtGui.QKeySequence.Paste, self)
+        paste_shortcut.activated.connect(self._handle_paste)
+
         # --- Undo / Redo -------------------------------------------------------
         self._undo_stack: list[tuple[pd.DataFrame, str]] = []
         self._redo_stack: list[tuple[pd.DataFrame, str]] = []
@@ -539,17 +695,38 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         except (UnidentifiedImageError, OSError):
             return None
 
+    def _show_loading_overlay(self, detail: str = "") -> None:
+        if hasattr(self, '_loading_overlay'):
+            rect = self.centralWidget().rect()
+            self._loading_overlay.setGeometry(rect)
+            self._loading_detail.setText(detail)
+            self._loading_progress.setValue(0)
+            self._loading_overlay.setVisible(True)
+            self._loading_overlay.raise_()
+
+    def _hide_loading_overlay(self) -> None:
+        if hasattr(self, '_loading_overlay'):
+            self._loading_overlay.setVisible(False)
+
     def _load_paths(self, paths: Sequence[Path]) -> None:
-        valid_paths: list[Path] = []
-        skipped = 0
-        for path in paths:
-            if path.suffix.lower() not in IMAGE_EXTENSIONS:
-                continue
-            image = self._open_image_safe(path)
-            if image is None:
-                skipped += 1
-                continue
-            valid_paths.append(path)
+        if self._image_load_worker is not None:
+            self._image_load_worker.progress.disconnect()
+            self._image_load_worker.finished.disconnect()
+            self._image_load_worker.quit()
+            self._image_load_worker.wait(1000)
+            self._image_load_worker = None
+
+        self._show_loading_overlay(f"Validating {len(paths)} file(s)...")
+        self._hide_drop_overlay()
+
+        self._image_load_worker = ImageLoadWorker(list(paths))
+        self._image_load_worker.progress.connect(self._loading_progress.setValue)
+        self._image_load_worker.finished.connect(self._on_images_loaded)
+        self._image_load_worker.start()
+
+    def _on_images_loaded(self, valid_paths: list[Path], skipped: list[str]) -> None:
+        self._hide_loading_overlay()
+        self._image_load_worker = None
 
         self.results = []
         self._single_results = {}
@@ -631,17 +808,28 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
             return temp_path
         return None
 
+    @staticmethod
+    def _origin_referer(url: str) -> str:
+        """Derive a plausible Referer from *url*'s origin (scheme + host)."""
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        return f"{parsed.scheme}://{parsed.netloc}/"
+
     def _download_web_image_to_temp(self, url: str) -> Path | None:
+        """Download a web image to a temp file. Shows loading overlay while downloading."""
+        self._show_loading_overlay(f"Downloading web image…\n{url}")
+        QtCore.QCoreApplication.processEvents()
         try:
             print(f"[DEBUG] Starting download of: {url}")
 
+            referer = self._origin_referer(url)
             headers_variants = [
                 {
                     "User-Agent": (
                         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                     ),
-                    "Referer": "https://danbooru.donmai.us/",
+                    "Referer": referer,
                     "Accept": "image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
                     "Accept-Language": "en-US,en;q=0.9",
                     "Accept-Encoding": "gzip, deflate, br",
@@ -686,6 +874,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
                         temp_path = temp_dir / f"web_{uuid4().hex[:8]}.{ext}"
                         temp_path.write_bytes(data)
                         print(f"[DEBUG] Saved to {temp_path}")
+                        self._hide_loading_overlay()
                         return temp_path
                 except urllib.error.HTTPError as e:
                     print(f"[DEBUG] HTTP Error {e.code} on attempt {attempt + 1}")
@@ -699,7 +888,28 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
                     continue
         except Exception as e:
             print(f"[DEBUG] Download failed with exception: {type(e).__name__}: {e}")
+            self._hide_loading_overlay()
             return None
+
+    _PAGE_URL_PATTERNS = [
+        re.compile(p) for p in [
+            r'index\.php\?.*page=post',
+            r'/post/show/',
+            r'/posts/\d+/?$',
+            r'\.php\?',
+        ]
+    ]
+    _IMAGE_EXT_PATTERN = re.compile(r'\.(png|jpe?g|webp|bmp|gif)(\?.*)?$', re.IGNORECASE)
+
+    @classmethod
+    def _is_image_url(cls, url: str) -> bool:
+        """Return True if *url* looks like a direct image URL."""
+        return bool(cls._IMAGE_EXT_PATTERN.search(url))
+
+    @classmethod
+    def _is_page_url(cls, url: str) -> bool:
+        """Return True if *url* looks like an HTML page, not an image."""
+        return any(pat.search(url) for pat in cls._PAGE_URL_PATTERNS)
 
     def _extract_web_image_candidates(self, mime_data: QtCore.QMimeData) -> list[str]:
         candidates: list[str] = []
@@ -712,27 +922,52 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         if mime_data.hasHtml():
             html = mime_data.html()
             src_matches = re.findall(r'src=["\']([^"\']+)["\']', html, flags=re.IGNORECASE)
+            # Also capture href attributes of <a> tags wrapping images
+            href_matches = re.findall(
+                r'<a\b[^>]*href=["\']([^"\']+)["\']', html, flags=re.IGNORECASE
+            )
             base_match = re.search(
                 r'<base[^>]*href=["\']([^"\']+)["\']', html, flags=re.IGNORECASE
             )
             base_url = base_match.group(1) if base_match else ""
+
             for src in src_matches:
                 if src.startswith(("http://", "https://")):
                     candidates.append(src)
                 elif base_url:
                     candidates.append(urljoin(base_url, src))
 
+            for href in href_matches:
+                if href.startswith(("http://", "https://")):
+                    candidates.append(href)
+                elif base_url:
+                    candidates.append(urljoin(base_url, href))
+
         if mime_data.hasText():
             text = mime_data.text().strip()
             if text.startswith(("http://", "https://")):
                 candidates.append(text)
 
-        unique: list[str] = []
+        # Separate image-looking URLs from page-looking URLs
+        image_urls: list[str] = []
+        page_urls: list[str] = []
+        other_urls: list[str] = []
         seen: set[str] = set()
         for item in candidates:
-            if item not in seen:
-                seen.add(item)
-                unique.append(item)
+            if item in seen:
+                continue
+            seen.add(item)
+            if self._is_image_url(item):
+                image_urls.append(item)
+            elif self._is_page_url(item):
+                page_urls.append(item)
+            else:
+                other_urls.append(item)
+
+        # Image URLs first, then ambiguous others, page URLs last
+        unique = image_urls + other_urls + page_urls
+        print(f"[DEBUG] URL candidates: {len(unique)} total "
+              f"(image={len(image_urls)}, other={len(other_urls)}, page={len(page_urls)})")
         return unique
 
     def dropEvent(self, event: QtGui.QDropEvent) -> None:
@@ -832,6 +1067,13 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
                 self.statusbar.showMessage("Loaded dropped image from web URL.", 5000)
                 event.acceptProposedAction()
                 return
+            else:
+                self.statusbar.showMessage(
+                    f"⚠️ Failed to download image from URL. The server may have rejected the request.",
+                    7000,
+                )
+                event.acceptProposedAction()
+                return
 
         all_formats = mime_data.formats()
         print(f"[DEBUG] Drop not recognized. Available MIME types: {all_formats}")
@@ -845,41 +1087,41 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
     # Keyboard / paste
     # ==================================================================
 
-    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
-        if event.matches(QtGui.QKeySequence.StandardKey.Paste):
-            clipboard = QtWidgets.QApplication.clipboard()
-            mime_data = clipboard.mimeData()
+    def _handle_paste(self) -> None:
+        clipboard = QtWidgets.QApplication.clipboard()
+        mime_data = clipboard.mimeData()
 
-            if mime_data.hasUrls():
-                paths = [Path(url.toLocalFile()) for url in mime_data.urls() if url.isLocalFile()]
-                if paths:
-                    self._load_paths(paths)
-                    self.statusbar.showMessage("Loaded pasted file path(s).", 5000)
-                    event.accept()
-                    return
-
-            for url in self._extract_web_image_candidates(mime_data):
-                downloaded = self._download_web_image_to_temp(url)
-                if downloaded is not None:
-                    self._load_paths([downloaded])
-                    self.statusbar.showMessage("Loaded pasted web image URL.", 5000)
-                    event.accept()
-                    return
-
-            image = clipboard.image()
-            temp_path = self._save_qimage_temp(image, "clipboard")
-            if temp_path is not None:
-                self._load_paths([temp_path])
-                self.statusbar.showMessage("Loaded pasted image data.", 5000)
-                event.accept()
+        if mime_data.hasUrls():
+            paths = [Path(url.toLocalFile()) for url in mime_data.urls() if url.isLocalFile()]
+            if paths:
+                self._load_paths(paths)
+                self.statusbar.showMessage("Loaded pasted file path(s).", 5000)
                 return
 
-            self.statusbar.showMessage(
-                "Clipboard does not contain an image. Copy an image or an image URL and press Ctrl+V.",
-                7000,
-            )
+        for url in self._extract_web_image_candidates(mime_data):
+            downloaded = self._download_web_image_to_temp(url)
+            if downloaded is not None:
+                self._load_paths([downloaded])
+                self.statusbar.showMessage("Loaded pasted web image URL.", 5000)
+                return
+            else:
+                self.statusbar.showMessage(
+                    f"⚠️ Failed to download image from URL. The server may have rejected the request.",
+                    7000,
+                )
+                return
 
-        super().keyPressEvent(event)
+        image = clipboard.image()
+        temp_path = self._save_qimage_temp(image, "clipboard")
+        if temp_path is not None:
+            self._load_paths([temp_path])
+            self.statusbar.showMessage("Loaded pasted image data.", 5000)
+            return
+
+        self.statusbar.showMessage(
+            "Clipboard does not contain an image. Copy an image or an image URL and press Ctrl+V.",
+            7000,
+        )
 
     # ==================================================================
     # Folder picker
@@ -1001,6 +1243,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         has_pending = 0 <= index < len(self.pending_paths)
         has_result = 0 <= index < len(self.results)
         self.tag_selected_btn.setEnabled(has_pending or has_result)
+        self.ai_meta_btn.setEnabled(has_pending or has_result)
 
     def process_single_image(self) -> None:
         index = self.result_list.currentRow()
@@ -1065,6 +1308,80 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
             self.statusbar.showMessage(f"Tagged {path.name} ({tag_count} tags)")
         except Exception as e:
             self.statusbar.showMessage(f"Error tagging: {str(e)}", 5000)
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+
+    def _extract_ai_metadata_for_current(self) -> None:
+        """Read AI generation parameters from the currently selected image."""
+        result = self._current_result()
+        image = None
+        if result is not None:
+            image = result.image
+        else:
+            index = self.result_list.currentRow()
+            if 0 <= index < len(self.pending_paths):
+                image = self._open_image_safe(self.pending_paths[index])
+
+        if image is None:
+            self.statusbar.showMessage("No image selected.", 3000)
+            return
+
+        self.statusbar.showMessage("Extracting AI metadata…")
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        try:
+            params = extract_ai_metadata(image)
+            if not params:
+                self.statusbar.showMessage(
+                    "No AI generation metadata found in this image.", 5000
+                )
+                return
+
+            tags = metadata_to_tags(params)
+            if not tags:
+                self.statusbar.showMessage(
+                    "AI metadata found but no parseable generation parameters.", 5000
+                )
+                return
+
+            # Import pandas for DataFrame construction
+            caption_text = ", ".join(tags)
+            # Build a frame with these metadata tags
+            rows: list[dict] = []
+            for idx, tag in enumerate(tags):
+                rows.append({
+                    "include": True,
+                    "rank": idx + 1,
+                    "tag": tag,
+                    "confidence": 0.0,
+                    "category": "ai_metadata",
+                })
+            frame = pd.DataFrame(rows)
+
+            index = self.result_list.currentRow()
+            new_result = TaggingResult(
+                name=(result.name if result else self.pending_paths[index].name),
+                path=(result.path if result else self.pending_paths[index]),
+                image=image,
+                frame=frame,
+                caption=caption_text,
+            )
+            if 0 <= index < len(self.results):
+                self.results[index] = new_result
+            else:
+                self._single_results[index] = new_result
+
+            self._active_result_index = index
+            self._frame_to_table(frame)
+            self.caption_edit.blockSignals(True)
+            self.caption_edit.setPlainText(caption_text)
+            self.caption_edit.blockSignals(False)
+            self._set_export_enabled(True)
+
+            self.statusbar.showMessage(
+                f"✓ Extracted {len(tags)} AI metadata tags from image.", 5000
+            )
+        except Exception as e:
+            self.statusbar.showMessage(f"Error extracting AI metadata: {str(e)}", 5000)
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
 
@@ -1157,6 +1474,9 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         if hasattr(self, '_drop_overlay') and self._drop_overlay.isVisible():
             rect = self.centralWidget().rect()
             self._drop_overlay.setGeometry(rect)
+        if hasattr(self, '_loading_overlay') and self._loading_overlay.isVisible():
+            rect = self.centralWidget().rect()
+            self._loading_overlay.setGeometry(rect)
 
     # ==================================================================
     # Undo / Redo
@@ -1477,6 +1797,231 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         self.statusbar.showMessage(
             f"✓ Copied {len(self._last_description_tags)} tags to clipboard", 3000
         )
+
+    # ==================================================================
+    # Watch-folder auto-tagging
+    # ==================================================================
+
+    def _toggle_watch_folder(self, enabled: bool) -> None:
+        """Start/stop watching the last-opened folder for new images."""
+        if enabled:
+            if not self.pending_paths:
+                self.watch_folder_cb.setChecked(False)
+                self.statusbar.showMessage(
+                    "Open a folder first, then enable Watch Folder.", 5000
+                )
+                return
+            watch_dir = self.pending_paths[0].parent
+            self._start_watching(watch_dir)
+        else:
+            self._stop_watching()
+
+    def _start_watching(self, directory: Path) -> None:
+        """Begin filesystem monitoring on *directory*."""
+        self._stop_watching()
+        self._watch_dir = directory
+        self._watcher = QtCore.QFileSystemWatcher(self)
+        self._watcher.directoryChanged.connect(self._on_watch_directory_changed)
+        self._watcher.addPath(str(directory))
+        self._watch_pending.clear()
+        self.statusbar.showMessage(
+            f"👁 Watching {directory} — new images will auto-load.", 6000
+        )
+
+    def _stop_watching(self) -> None:
+        """Stop filesystem monitoring."""
+        if self._watcher is not None:
+            self._watcher.directoryChanged.disconnect(self._on_watch_directory_changed)
+            self._watcher.deleteLater()
+            self._watcher = None
+        self._watch_dir = None
+        self._watch_pending.clear()
+        self._watch_timer.stop()
+        self.statusbar.showMessage("Watch folder stopped.", 3000)
+
+    def _on_watch_directory_changed(self, path: str) -> None:
+        """Called by QFileSystemWatcher when files change in the watched dir."""
+        self._watch_timer.start()
+
+    def _on_watch_timer(self) -> None:
+        """Debounced: scan watch dir for new image files, auto-load them."""
+        if self._watch_dir is None or not self._watch_dir.exists():
+            return
+        new: list[Path] = []
+        for entry in self._watch_dir.iterdir():
+            if entry.is_file() and entry.suffix.lower() in IMAGE_EXTENSIONS:
+                if entry not in self.pending_paths and entry not in self._watch_pending:
+                    new.append(entry)
+                    self._watch_pending.add(entry)
+        if not new:
+            return
+
+        self.pending_paths = sorted(
+            set(self.pending_paths) | set(new), key=lambda p: p.stat().st_mtime
+        )
+        self.statusbar.showMessage(
+            f"👁 Auto-loaded {len(new)} new image(s) — "
+            f"{len(self.pending_paths)} total. Click 'Tag All Images'.", 6000
+        )
+
+        self._hide_drop_overlay()
+        self.table.setRowCount(0)
+        self.caption_edit.blockSignals(True)
+        self.caption_edit.setPlainText("")
+        self.caption_edit.blockSignals(False)
+        self._set_export_enabled(False)
+        self.results = []
+        self._single_results = {}
+        self._active_result_index = -1
+
+        self.pending_label.setText(f"Loaded {len(self.pending_paths)} image(s).")
+        self.tag_btn.setEnabled(bool(self.pending_paths))
+
+        self.result_list.blockSignals(True)
+        self.result_list.clear()
+        for p in self.pending_paths:
+            self.result_list.addItem(p.name)
+        self.result_list.blockSignals(False)
+        if self.pending_paths:
+            self.result_list.setCurrentRow(0)
+            self.show_result(0)
+
+    # ==================================================================
+    # Copy as Prompt / Negative Prompt builder
+    # ==================================================================
+
+    def _copy_as_prompt(self) -> None:
+        """Copy the current caption as a ComfyUI-ready prompt (underscores->spaces)."""
+        text = self.caption_edit.toPlainText().strip()
+        if not text:
+            result = self._current_result()
+            if result is not None:
+                text = result.caption
+        if not text:
+            self.statusbar.showMessage("No caption to copy.", 3000)
+            return
+        prompt = text.replace("_", " ")
+        QtWidgets.QApplication.clipboard().setText(prompt)
+        self.statusbar.showMessage(
+            "✓ Copied as prompt (underscores -> spaces). Paste into ComfyUI.", 4000
+        )
+
+    def _build_negative_prompt(self) -> None:
+        """Build a Negative prompt from excluded/blacklisted tags and copy to clipboard."""
+        excluded_tags: list[str] = []
+
+        for row in range(self.table.rowCount()):
+            include_item = self.table.item(row, 0)
+            tag_item = self.table.item(row, 2)
+            if include_item is None or tag_item is None:
+                continue
+            if include_item.checkState() != QtCore.Qt.Checked:
+                excluded_tags.append(tag_item.text().strip())
+
+        blacklist_raw = self.blacklist.toPlainText().strip()
+        if blacklist_raw:
+            excluded_tags.extend(split_tags(blacklist_raw))
+
+        excluded_tags = sorted(set(excluded_tags))
+
+        if not excluded_tags:
+            self.statusbar.showMessage(
+                "No excluded tags found. Uncheck some tags or add a blacklist.", 4000
+            )
+            return
+
+        negative = ", ".join(excluded_tags)
+        QtWidgets.QApplication.clipboard().setText(negative)
+        self.statusbar.showMessage(
+            f"✓ Built negative prompt with {len(excluded_tags)} tags. Copied to clipboard.", 4000
+        )
+
+    # ==================================================================
+    # Tag frequency dashboard
+    # ==================================================================
+
+    def _show_tag_frequency(self) -> None:
+        """Display a dialog listing all tags across results with their counts."""
+        counter: dict[str, int] = {}
+        for r in self.results:
+            tags = split_tags(r.caption)
+            for t in tags:
+                counter[t] = counter.get(t, 0) + 1
+
+        if not counter:
+            self.statusbar.showMessage("No tagged results to analyze.", 3000)
+            return
+
+        sorted_tags = sorted(counter.items(), key=lambda x: (-x[1], x[0]))
+
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle("📊 Tag Frequency Dashboard")
+        dlg.resize(520, 500)
+        dlg.setModal(True)
+        dlg.setStyleSheet(self.styleSheet())
+
+        layout = QtWidgets.QVBoxLayout(dlg)
+        layout.setSpacing(10)
+
+        header = QtWidgets.QLabel(
+            f"Tags across {len(self.results)} image(s) — "
+            f"{len(sorted_tags)} unique tags, "
+            f"{sum(counter.values())} total occurrences"
+        )
+        header.setStyleSheet("color: #4da6ff; font-weight: bold; font-size: 11px;")
+        header.setWordWrap(True)
+        layout.addWidget(header)
+
+        table = QtWidgets.QTableWidget(len(sorted_tags), 3)
+        table.setHorizontalHeaderLabels(["Tag", "Count", "Coverage"])
+        table.horizontalHeader().setStretchLastSection(True)
+        table.setAlternatingRowColors(True)
+        table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        table.setColumnWidth(0, 260)
+        table.setColumnWidth(1, 70)
+        total_images = max(1, len(self.results))
+
+        for row, (tag, count) in enumerate(sorted_tags):
+            tag_item = QtWidgets.QTableWidgetItem(tag)
+            tag_item.setToolTip(tag)
+            table.setItem(row, 0, tag_item)
+
+            count_item = QtWidgets.QTableWidgetItem(str(count))
+            count_item.setTextAlignment(QtCore.Qt.AlignCenter)
+            table.setItem(row, 1, count_item)
+
+            pct = f"{count / total_images * 100:.0f}%"
+            pct_item = QtWidgets.QTableWidgetItem(pct)
+            pct_item.setTextAlignment(QtCore.Qt.AlignCenter)
+            table.setItem(row, 2, pct_item)
+
+        layout.addWidget(table, 1)
+
+        btn_row = QtWidgets.QHBoxLayout()
+        copy_btn = QtWidgets.QPushButton("📋 Copy as CSV")
+        copy_btn.clicked.connect(
+            lambda: self._copy_freq_to_clipboard(sorted_tags, counter)
+        )
+        close_btn = QtWidgets.QPushButton("Close")
+        close_btn.clicked.connect(dlg.accept)
+        btn_row.addStretch(1)
+        btn_row.addWidget(copy_btn)
+        btn_row.addWidget(close_btn)
+        layout.addLayout(btn_row)
+
+        dlg.exec()
+
+    def _copy_freq_to_clipboard(
+        self, sorted_tags: list[tuple[str, int]], counter: dict[str, int]
+    ) -> None:
+        """Copy the frequency table as CSV to clipboard."""
+        lines = ["tag,count,coverage_pct"]
+        total = max(1, len(self.results))
+        for tag, count in sorted_tags:
+            pct = count / total * 100
+            lines.append(f"{tag},{count},{pct:.1f}")
+        QtWidgets.QApplication.clipboard().setText("\n".join(lines))
+        self.statusbar.showMessage("✓ Copied frequency table as CSV.", 3000)
 
     # ==================================================================
     # Export
