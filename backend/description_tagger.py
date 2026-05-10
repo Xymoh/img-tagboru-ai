@@ -65,7 +65,7 @@ _SEMANTIC_DEDUP_MAP: dict[str, list[str]] = {
     "erection":         ["erect_penis", "hard"],
     "street":           ["road", "sidewalk", "pavement", "cobblestone"],
     "urban":            ["city", "cityscape", "downtown"],
-    "saliva":           ["drooling", "drool", "wet"],
+    "saliva":           ["drooling", "drool"],
     "kneeling":         ["on_knees", "kneel"],
     "nun":              ["nun_outfit", "religious_sister", "nun_headdress", "traditional_nun"],
 }
@@ -368,8 +368,6 @@ class DescriptionTagger:
     # generation where reasoning wastes tokens.
     _MODEL_PREFILLS = {
         "qwen3_no_think": "/no_think",
-        "gemma": "<|channel>thought",
-        "deepseek": None,  # DeepSeek-V4-Flash works better without prefill
     }
 
     def __init__(

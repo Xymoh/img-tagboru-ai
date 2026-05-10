@@ -331,8 +331,9 @@ class TagFrequencyIndex:
 def get_tag_index(csv_path: str | None = None, min_threshold: int = 500) -> TagFrequencyIndex:
     """Return a cached :class:`TagFrequencyIndex` instance.
 
-    On first call, *csv_path* must be provided. Subsequent calls return the
-    cached instance regardless of arguments.
+    First call initializes the singleton with the given parameters.
+    Subsequent calls with different arguments will return a different cached instance
+    (lru_cache with maxsize=1 means only the most recent call is cached).
     """
     path = csv_path or os.path.join(
         os.path.dirname(__file__), "..", "danbooru_tags_post_count.csv",
