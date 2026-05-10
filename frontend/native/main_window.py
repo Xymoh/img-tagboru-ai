@@ -402,30 +402,6 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         desc_tab = QtWidgets.QWidget()
         desc_layout = QtWidgets.QVBoxLayout(desc_tab)
 
-        # --- Input mode toggle (description vs seed tags) ---
-        input_mode_group = QtWidgets.QGroupBox("📥 Input Mode")
-        input_mode_layout = QtWidgets.QHBoxLayout(input_mode_group)
-        input_mode_layout.setSpacing(6)
-
-        self.desc_input_mode = QtWidgets.QComboBox()
-        self.desc_input_mode.setStyleSheet(
-            "background-color: #1a1a1a; color: #ffffff; padding: 5px;"
-        )
-        self.desc_input_mode.addItem("📝 From Description", "description")
-        self.desc_input_mode.addItem("🏷️ From Seed Tags", "seed_tags")
-        self.desc_input_mode.setCurrentIndex(0)
-        self.desc_input_mode.currentIndexChanged.connect(self._on_input_mode_changed)
-        input_mode_layout.addWidget(self.desc_input_mode)
-
-        input_mode_hint = QtWidgets.QLabel(
-            "<b>Description:</b> write a scene in English → AI generates tags<br>"
-            "<b>Seed Tags:</b> paste existing tags → AI adds complementary tags"
-        )
-        input_mode_hint.setStyleSheet("color: #9ecbff; font-size: 10px; padding: 2px;")
-        input_mode_hint.setWordWrap(True)
-        input_mode_layout.addWidget(input_mode_hint, 1)
-        desc_layout.addWidget(input_mode_group)
-
         model_group = QtWidgets.QGroupBox("🤖 LLM Model Selection")
         model_layout = QtWidgets.QVBoxLayout(model_group)
         model_layout.setSpacing(8)
@@ -513,6 +489,30 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         threshold_layout.addRow(threshold_hint)
 
         desc_layout.addWidget(threshold_group)
+
+        # --- Input mode toggle (description vs seed tags) ---
+        input_mode_group = QtWidgets.QGroupBox("📥 Input Mode")
+        input_mode_layout = QtWidgets.QHBoxLayout(input_mode_group)
+        input_mode_layout.setSpacing(6)
+
+        self.desc_input_mode = QtWidgets.QComboBox()
+        self.desc_input_mode.setStyleSheet(
+            "background-color: #1a1a1a; color: #ffffff; padding: 5px;"
+        )
+        self.desc_input_mode.addItem("📝 From Description", "description")
+        self.desc_input_mode.addItem("🏷️ From Seed Tags", "seed_tags")
+        self.desc_input_mode.setCurrentIndex(0)
+        self.desc_input_mode.currentIndexChanged.connect(self._on_input_mode_changed)
+        input_mode_layout.addWidget(self.desc_input_mode)
+
+        input_mode_hint = QtWidgets.QLabel(
+            "<b>Description:</b> write a scene in English → AI generates tags<br>"
+            "<b>Seed Tags:</b> paste existing tags → AI adds complementary tags"
+        )
+        input_mode_hint.setStyleSheet("color: #9ecbff; font-size: 10px; padding: 2px;")
+        input_mode_hint.setWordWrap(True)
+        input_mode_layout.addWidget(input_mode_hint, 1)
+        desc_layout.addWidget(input_mode_group)
 
         self.input_desc_group = QtWidgets.QGroupBox("✍️ Input")
         input_desc_layout = QtWidgets.QVBoxLayout(self.input_desc_group)
