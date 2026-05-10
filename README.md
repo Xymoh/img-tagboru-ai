@@ -21,28 +21,31 @@ Local anime image captioning tool inspired by WD14 / OneTrainer workflows.
 - Tag filtering (blacklist/whitelist)
 - Batch processing with progress tracking
 
-### Description-to-Tags (NEW)
-- Describe what you want to see on an image
-- AI generates corresponding Danbooru tags using a local LLM
+### Description-to-Tags
+- Describe a scene in English — AI generates Danbooru-style tags from your description
+- 3 creativity modes: Safe (SFW), Creative (mild NSFW), Mature (explicit NSFW)
 - No API calls, fully offline
-- Unrestricted tag generation (includes NSFW keywords when relevant)
-- Uses Ollama + Qwen (or Llama) running locally
+- Vocabulary-grounded prompting backed by `danbooru_tags_post_count.csv` (99,995 tags)
+- Multi-step post-processing: whitelist validation, relevance gate, concept/act expansions, semantic dedup, pose-conflict resolution
+- Uses Ollama + an abliterated Qwen3 model running locally
 
 ## PC Requirements for Description-to-Tags
 
 The description-to-tags feature requires a local LLM running via **Ollama**:
 
 **Minimum Hardware:**
-- **RAM:** 8 GB (16 GB recommended for better performance)
+- **RAM:** 16 GB (32 GB recommended)
 - **CPU:** Modern multi-core processor
-- **GPU:** Optional but strongly recommended (NVIDIA/AMD/Intel with proper drivers)
-- **Disk:** 10-20 GB free for model storage
+- **GPU:** NVIDIA/AMD with 16 GB VRAM recommended (8 GB workable with smaller models)
+- **Disk:** ~10 GB per model
 
 **Setup:**
 1. Download and install **Ollama** from [ollama.ai](https://ollama.ai)
 2. Start Ollama: `ollama serve`
-3. In another terminal, pull a model: `ollama pull qwen2:7b` (recommended) or `ollama pull llama2`
-4. First inference takes 30s-2min depending on hardware; subsequent calls are faster
+3. Pull the recommended model: `ollama pull richardyoung/qwen3-14b-abliterated`
+4. First inference takes 30s-2min (model load); subsequent calls average ~4s per run
+
+The Description Tagger applies a deterministic post-processing pipeline (relevance gate, concept/act expansions, pose-conflict resolver) on top of the LLM output, so even with a small or occasionally-refusing model the results stay coherent. See the in-app Help dialog for model alternatives, test results, and tradeoffs.
 
 **Note:** This feature is optional. Image-to-tags works without Ollama.
 

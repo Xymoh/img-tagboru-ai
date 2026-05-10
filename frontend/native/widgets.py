@@ -248,41 +248,66 @@ class HelpDialog(QtWidgets.QDialog):
                 <th style="padding: 6px; text-align: left; border: 1px solid #444; color: #4da6ff;">Pull Command</th>
             </tr>
             <tr>
-                <td style="padding: 6px; border: 1px solid #444; color: #66ff66;"><b>🏆 Qwen3-14B-Abliterated</b><br><span style="color: #888;">Default · 100% reliable in testing · 16GB VRAM</span></td>
+                <td style="padding: 6px; border: 1px solid #444; color: #66ff66;"><b>🏆 Qwen3-14B-Abliterated</b><br><span style="color: #888;">Default · 9.9 avg tags/run · 4s/run · 16GB VRAM</span></td>
                 <td style="padding: 6px; border: 1px solid #444;">14B<br><span style="color: #888;">~9GB Q4_K_M</span></td>
-                <td style="padding: 6px; border: 1px solid #444;">⭐⭐⭐⭐⭐<br>Verified</td>
+                <td style="padding: 6px; border: 1px solid #444;">⭐⭐⭐⭐⭐<br>Recommended</td>
                 <td style="padding: 6px; border: 1px solid #444; font-family: monospace; font-size: 10px;">ollama pull richardyoung/qwen3-14b-abliterated</td>
             </tr>
         </table>
 
-        <h4 style="color: #888;">Alternative Models (not tested — may produce worse or zero results)</h4>
+        <h4 style="color: #66ff66;">🔁 Tested Alternative</h4>
         <table style="width:100%; border-collapse: collapse; margin: 8px 0; font-size: 11px;">
             <tr style="background-color: #2a2a2a;">
                 <th style="padding: 6px; text-align: left; border: 1px solid #444; color: #4da6ff;">Model</th>
                 <th style="padding: 6px; text-align: left; border: 1px solid #444; color: #4da6ff;">Size</th>
+                <th style="padding: 6px; text-align: left; border: 1px solid #444; color: #4da6ff;">Best for</th>
                 <th style="padding: 6px; text-align: left; border: 1px solid #444; color: #4da6ff;">Pull Command</th>
             </tr>
             <tr>
-                <td style="padding: 6px; border: 1px solid #444; color: #aaa;"><b>Qwen3.6-35B-uncensored</b><br><span style="color: #888;">MoE: 3B active / 35B total</span></td>
-                <td style="padding: 6px; border: 1px solid #444;">~6GB</td>
-                <td style="padding: 6px; border: 1px solid #444; font-family: monospace; font-size: 10px;">ollama pull llmfan46/qwen3.6-35b-a3b-uncensored-heretic</td>
-            </tr>
-            <tr style="background-color: #222;">
-                <td style="padding: 6px; border: 1px solid #444; color: #aaa;"><b>Gemma-4-26B-uncensored</b><br><span style="color: #888;">MoE: 4B active / 26B total</span></td>
-                <td style="padding: 6px; border: 1px solid #444;">~8GB</td>
-                <td style="padding: 6px; border: 1px solid #444; font-family: monospace; font-size: 10px;">ollama pull llmfan46/gemma-4-26b-a4b-it-ultra-uncensored-heretic</td>
-            </tr>
-            <tr>
-                <td style="padding: 6px; border: 1px solid #444; color: #aaa;"><b>Qwen3.5-35B-uncensored</b><br><span style="color: #888;">MoE: 3B active / 35B total</span></td>
-                <td style="padding: 6px; border: 1px solid #444;">~6GB</td>
-                <td style="padding: 6px; border: 1px solid #444; font-family: monospace; font-size: 10px;">ollama pull llmfan46/qwen3.5-35b-a3b-uncensored-heretic</td>
+                <td style="padding: 6px; border: 1px solid #444; color: #ffcc66;"><b>Goonsai Qwen2.5-3B NSFW</b><br><span style="color: #888;">Purpose-built for image prompts · 7s/run · 7.3 avg tags</span></td>
+                <td style="padding: 6px; border: 1px solid #444;">3B<br><span style="color: #888;">~2GB</span></td>
+                <td style="padding: 6px; border: 1px solid #444;">Quick re-runs when main model is sparse; thinner atmospheric coverage</td>
+                <td style="padding: 6px; border: 1px solid #444; font-family: monospace; font-size: 10px;">ollama pull goonsai/qwen2.5-3B-goonsai-nsfw-100k</td>
             </tr>
         </table>
-        
+
+        <h4 style="color: #888;">Not Recommended (tested, returned empty output)</h4>
+        <table style="width:100%; border-collapse: collapse; margin: 8px 0; font-size: 11px;">
+            <tr style="background-color: #2a2a2a;">
+                <th style="padding: 6px; text-align: left; border: 1px solid #444; color: #4da6ff;">Model</th>
+                <th style="padding: 6px; text-align: left; border: 1px solid #444; color: #4da6ff;">Why skip</th>
+            </tr>
+            <tr>
+                <td style="padding: 6px; border: 1px solid #444; color: #888;"><b>huihui_ai/qwen3-abliterated:30b-a3b-q4_K_M</b></td>
+                <td style="padding: 6px; border: 1px solid #444; color: #888;">Thinking-mode variant — reasoning tokens consume the generation budget, produces empty tags. Use the <code>instruct-2507</code> variant instead (untested).</td>
+            </tr>
+        </table>
+
+        <h4 style="color: #888;">Untested Alternatives (may or may not work)</h4>
+        <table style="width:100%; border-collapse: collapse; margin: 8px 0; font-size: 11px;">
+            <tr style="background-color: #2a2a2a;">
+                <th style="padding: 6px; text-align: left; border: 1px solid #444; color: #4da6ff;">Model</th>
+                <th style="padding: 6px; text-align: left; border: 1px solid #444; color: #4da6ff;">Pull Command</th>
+            </tr>
+            <tr>
+                <td style="padding: 6px; border: 1px solid #444; color: #aaa;"><b>Qwen3 30B-A3B Instruct-2507 Abliterated</b><br><span style="color: #888;">Non-thinking MoE, ~18GB — should run with partial RAM offload</span></td>
+                <td style="padding: 6px; border: 1px solid #444; font-family: monospace; font-size: 10px;">ollama pull huihui_ai/qwen3-abliterated:30b-a3b-instruct-2507-q4_K_M</td>
+            </tr>
+            <tr style="background-color: #222;">
+                <td style="padding: 6px; border: 1px solid #444; color: #aaa;"><b>Qwen2.5 14B Abliterated Instruct</b><br><span style="color: #888;">Qwen2.5 has no thinking mode by design — clean baseline</span></td>
+                <td style="padding: 6px; border: 1px solid #444; font-family: monospace; font-size: 10px;">ollama pull huihui_ai/qwen2.5-abliterate:14b-instruct-q4_K_M</td>
+            </tr>
+            <tr>
+                <td style="padding: 6px; border: 1px solid #444; color: #aaa;"><b>Cydonia 24B v4.3 Heretic</b><br><span style="color: #888;">Dense 24B, tuned for uncensored creative writing</span></td>
+                <td style="padding: 6px; border: 1px solid #444; font-family: monospace; font-size: 10px;">ollama pull Fermi/Cydonia-24B-v4.3-heretic-vision:Q4_K_M</td>
+            </tr>
+        </table>
+
         <p style='color: #ffcc66; font-size: 11px; margin-top: 8px;'>
-            💡 <b>Tip:</b> Qwen3-14B-Abliterated is the only model verified with 100% reliability (18/18 batch test).<br>
-            💡 <b>VRAM:</b> Qwen3-14B uses ~9GB at Q4_K_M, fits comfortably in 16GB GPUs.<br>
-            💡 <b>Explicit content:</b> All recommended models are abliterated/uncensored for NSFW tags.
+            💡 <b>Speed:</b> Qwen3-14B runs at ~4s/run thanks to the <code>/no_think</code> directive that skips reasoning tokens.<br>
+            💡 <b>Weak output?</b> Re-run 2-3 times — temperature sampling produces different results. Goonsai-3B is great for quick iterations.<br>
+            💡 <b>Explicit content:</b> All listed models are abliterated/uncensored for NSFW tags.<br>
+            💡 <b>Avoid thinking-mode Qwen3 variants</b> (anything without <code>instruct-2507</code> in the name) — they waste the output budget on reasoning.
         </p>
 
         <hr style="border: 1px solid #444;">

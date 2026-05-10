@@ -235,6 +235,7 @@ class TagFrequencyIndex:
         n: int = 5,
         min_count: int = 100,
         exclude: set[str] | None = None,
+        allowed_parentheticals: set[str] | None = None,
     ) -> list[str]:
         """Return up to *n* tags per keyword whose name contains that keyword.
 
@@ -242,9 +243,15 @@ class TagFrequencyIndex:
         >= *min_count* are considered.  Useful for building prompt-specific
         vocabulary sections.
 
+        Tags with a Danbooru disambiguator (``tag_(context)``) are excluded
+        unless the parenthetical content is in *allowed_parentheticals*.
+        This prevents franchise-name collisions like ``knight_(hollow_knight)``
+        surfacing when the user simply writes "knight".
+
         Returns a deduplicated list of all matching tags (not grouped by keyword).
         """
         skip = exclude or set()
+        allowed_ctx = {p.lower() for p in (allowed_parentheticals or set())}
         seen: set[str] = set()
         result: list[str] = []
 
@@ -257,6 +264,11 @@ class TagFrequencyIndex:
                 break  # rest are below threshold
             if tag in skip or tag in seen:
                 continue
+            # Skip disambiguator tags unless the context is allowed.
+            if "_(" in tag and tag.endswith(")"):
+                ctx = tag[tag.index("_(") + 2 : -1]
+                if ctx not in allowed_ctx:
+                    continue
             for kw in keywords:
                 kw_lower = kw.lower()
                 if keyword_counts.get(kw_lower, n) >= n:

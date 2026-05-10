@@ -2,6 +2,32 @@
 
 All notable changes to Img-Tagboru are documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Relevance gate** in Description Tagger post-processing. Every tag is scored 0-3 against the user's description; score-0 tags (likely hallucinations) are dropped. Franchise tags like `magic_knight_rayearth`, `library_of_ruina`, `master_sword` no longer leak into unrelated prompts.
+- **Concept expansion map** (`_CONCEPT_EXPANSIONS`) — 30+ archetype keywords (nun, witch, knight, maid, catgirl, orc, succubus, kitchen, cathedral, library, ...) map to plausible Danbooru tags, letting the LLM use e.g. `veil` for a nun description without that word being named.
+- **NSFW act expansion map** (`_ACT_EXPANSIONS`) — 57 sex-act keywords expand to anatomy/position/reaction tags (e.g. `blowjob` → `fellatio, penis, open_mouth, saliva, kneeling, tongue_out`). Applied only in creative/mature modes; safe mode never sees anatomy.
+- **Mutual-exclusion conflict resolver** — keeps only the highest-post_count tag within pose/viewpoint/framing/mouth/time-of-day groups (no more `standing + kneeling + lying` collisions).
+- **Repetition-loop detector** in `_parse_tags` — truncates the raw response when the model stutters into `saliva, saliva, saliva, ...` loops.
+- **Disambiguator auto-block** — tags shaped `tag_(context)` are dropped unless the parenthetical matches a word in the description.
+- **Concept-expansion rescue path** — when the LLM returns nothing usable, synthesize tags from archetype and act expansions so the output is never empty.
+- **Per-mode retry acceptance thresholds** — safe accepts ≥3 tags, creative ≥5, mature ≥6. Up to 3 attempts with +0.15 temperature per retry. Best result across attempts is kept.
+- Expanded `_extract_literal_tags_from_description` from 15 phrases to 80+ (anatomy, body type, sex acts, participants, fluids, archetypes).
+
+### Changed
+- **Qwen3 `/no_think` directive** replaces the old `<think>` prefill. Generation time dropped from ~11s to ~4s per run (65% faster) because the reasoning block no longer consumes the `num_predict` budget.
+- Prefill detection now scopes to qwen3 thinking variants only — qwen2.5, qwen3-Instruct-2507, and non-qwen models no longer receive the directive.
+- Help dialog model recommendations updated with real tested numbers:
+  - Qwen3-14B-Abliterated (default): 9.9 avg tags/run, 4s/run
+  - Goonsai Qwen2.5-3B NSFW: 7.3 avg tags/run, 7s/run — listed as tested alternative for quick re-runs
+  - huihui_ai/qwen3-abliterated:30b-a3b-q4_K_M marked as "not recommended" (thinking variant returns empty output)
+  - Untested alternatives section with pull commands for the Instruct-2507 variant, qwen2.5-14b abliterated, and Cydonia 24B
+
+### Fixed
+- Franchise-name collisions were slipping through when tags shared a single token with the description. 2-token tags now require both tokens be supported; 3+ token tags require 75% of tokens supported.
+- NSFW descriptions like "Orc forcing elf to give him blowjob" no longer return zero tags — act expansions let anatomy pass the relevance gate in creative/mature modes.
+
 ## [v1.3.1] — 2026-05-07
 
 ### Added
