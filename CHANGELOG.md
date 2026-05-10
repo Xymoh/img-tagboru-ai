@@ -28,6 +28,19 @@ All notable changes to Img-Tagboru are documented in this file.
 - Franchise-name collisions were slipping through when tags shared a single token with the description. 2-token tags now require both tokens be supported; 3+ token tags require 75% of tokens supported.
 - NSFW descriptions like "Orc forcing elf to give him blowjob" no longer return zero tags — act expansions let anatomy pass the relevance gate in creative/mature modes.
 
+## [v1.3.2] — 2026-05-10
+
+### Added
+- **Tag Enrichment** — expand a list of seed tags with complementary Danbooru tags from the LLM. Paste tags like `1girl, beach, volleyball` and the AI returns complementary tags (`towel, lying_on_towel, sunshine, dolphins`) that fit the scene.
+- Three enrichment few-shot example sets (safe, creative, mature) with NSFW anatomy handled by the mature mode selector — safe enrichment never returns explicit anatomy.
+- "Input Mode" toggle in the Description Tagger tab (`📝 From Description` / `🏷️ From Seed Tags`) switches between classic description-to-tags and the new tag-enrichment pipeline.
+- Dynamic UI: the tab title, hint label, placeholder text, and Generate button text update based on the active input mode.
+- `DescriptionTagWorker` supports `enrich_mode` flag — routes to `tagger.enrich_tags()` when seed-tag mode is active.
+
+### Changed
+- `_generate_tags_from_description` now detects the input mode and passes `enrich_mode` to the worker thread.
+- Input group box and hint label promoted to `self.` attributes for runtime switching.
+
 ## [v1.3.1] — 2026-05-07
 
 ### Added

@@ -45,18 +45,23 @@ class DescriptionTagWorker(QtCore.QThread):
         model: str,
         creativity: str,
         post_count_threshold: int = 500,
+        enrich_mode: bool = False,
     ) -> None:
         super().__init__()
         self.description = description
         self.model = model
         self.creativity = creativity
         self.post_count_threshold = post_count_threshold
+        self.enrich_mode = enrich_mode
 
     def run(self) -> None:
         try:
             tagger = get_description_tagger(model=self.model)
             tagger.set_post_count_threshold(self.post_count_threshold)
-            result = tagger.generate_tags(self.description, creativity=self.creativity)
+            if self.enrich_mode:
+                result = tagger.enrich_tags(self.description, creativity=self.creativity)
+            else:
+                result = tagger.generate_tags(self.description, creativity=self.creativity)
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))

@@ -51,7 +51,7 @@ from frontend.native.workers import DescriptionTagWorker, ImageLoadWorker, Model
 class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Img-Tagboru v1.3.1")
+        self.setWindowTitle("Img-Tagboru v1.3.2")
         self.resize(1400, 300)
         self.setAcceptDrops(True)
 
@@ -402,6 +402,30 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         desc_tab = QtWidgets.QWidget()
         desc_layout = QtWidgets.QVBoxLayout(desc_tab)
 
+        # --- Input mode toggle (description vs seed tags) ---
+        input_mode_group = QtWidgets.QGroupBox("📥 Input Mode")
+        input_mode_layout = QtWidgets.QHBoxLayout(input_mode_group)
+        input_mode_layout.setSpacing(6)
+
+        self.desc_input_mode = QtWidgets.QComboBox()
+        self.desc_input_mode.setStyleSheet(
+            "background-color: #1a1a1a; color: #ffffff; padding: 5px;"
+        )
+        self.desc_input_mode.addItem("📝 From Description", "description")
+        self.desc_input_mode.addItem("🏷️ From Seed Tags", "seed_tags")
+        self.desc_input_mode.setCurrentIndex(0)
+        self.desc_input_mode.currentIndexChanged.connect(self._on_input_mode_changed)
+        input_mode_layout.addWidget(self.desc_input_mode)
+
+        input_mode_hint = QtWidgets.QLabel(
+            "<b>Description:</b> write a scene in English → AI generates tags<br>"
+            "<b>Seed Tags:</b> paste existing tags → AI adds complementary tags"
+        )
+        input_mode_hint.setStyleSheet("color: #9ecbff; font-size: 10px; padding: 2px;")
+        input_mode_hint.setWordWrap(True)
+        input_mode_layout.addWidget(input_mode_hint, 1)
+        desc_layout.addWidget(input_mode_group)
+
         model_group = QtWidgets.QGroupBox("🤖 LLM Model Selection")
         model_layout = QtWidgets.QVBoxLayout(model_group)
         model_layout.setSpacing(8)
@@ -490,15 +514,15 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
 
         desc_layout.addWidget(threshold_group)
 
-        input_desc_group = QtWidgets.QGroupBox("✍️ Description Input")
-        input_desc_layout = QtWidgets.QVBoxLayout(input_desc_group)
+        self.input_desc_group = QtWidgets.QGroupBox("✍️ Input")
+        input_desc_layout = QtWidgets.QVBoxLayout(self.input_desc_group)
         input_desc_layout.setSpacing(8)
 
-        desc_hint = QtWidgets.QLabel(
+        self.desc_hint_label = QtWidgets.QLabel(
             "Describe what you want to see, and AI will generate Danbooru tags:"
         )
-        desc_hint.setStyleSheet("color: #4da6ff; font-size: 12px; font-weight: bold;")
-        input_desc_layout.addWidget(desc_hint)
+        self.desc_hint_label.setStyleSheet("color: #4da6ff; font-size: 12px; font-weight: bold;")
+        input_desc_layout.addWidget(self.desc_hint_label)
 
         self.description_input = QtWidgets.QPlainTextEdit()
         self.description_input.setPlaceholderText(
@@ -536,7 +560,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         self.generate_from_desc_btn.clicked.connect(self._generate_tags_from_description)
         input_desc_layout.addWidget(self.generate_from_desc_btn)
 
-        desc_layout.addWidget(input_desc_group)
+        desc_layout.addWidget(self.input_desc_group)
 
         tags_group = QtWidgets.QGroupBox("🏷️ Generated Tags")
         tags_layout = QtWidgets.QVBoxLayout(tags_group)
@@ -694,7 +718,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         QtWidgets.QMessageBox.about(
             self,
             "About Img-Tagboru",
-            "Img-Tagboru v1.3.1\n\n"
+            "Img-Tagboru v1.3.2\n\n"
             "Local Anime Image Tagger\n"
             "WD14-style tagging for anime images and LoRA training.\n\n"
             "Features:\n"
@@ -1802,10 +1826,45 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         except Exception:
             pass  # Tagger not initialized yet — fine
 
+    def _on_input_mode_changed(self) -> None:
+        """Update UI labels and placeholders when the description/seed-tags mode changes."""
+        mode = self.desc_input_mode.currentData()
+        if mode == "seed_tags":
+            self.input_desc_group.setTitle("🏷️ Seed Tags Input")
+            self.desc_hint_label.setText(
+                "Paste Danbooru tags and AI will add complementary tags:"
+            )
+            self.description_input.setPlaceholderText(
+                "Examples:\n"
+                "• 1girl, beach, volleyball\n"
+                "• 1girl, witch_hat, forest\n"
+                "• 1girl, 1boy, bedroom"
+            )
+            self.generate_from_desc_btn.setText("✨ Enrich Seed Tags")
+            self.generate_from_desc_btn.setToolTip(
+                "AI will analyze your seed tags and generate complementary Danbooru tags"
+            )
+        else:
+            self.input_desc_group.setTitle("✍️ Description Input")
+            self.desc_hint_label.setText(
+                "Describe what you want to see, and AI will generate Danbooru tags:"
+            )
+            self.description_input.setPlaceholderText(
+                "Examples:\n"
+                "• A girl with long black hair and red eyes, wearing a maid outfit\n"
+                "• Anime boy with blue eyes and blonde hair, holding a sword\n"
+                "• Beautiful landscape with mountains and sunset in fantasy art style\n"
+                "• Character with animal ears, tail, and wearing school uniform"
+            )
+            self.generate_from_desc_btn.setText("✨ Generate Tags from Description")
+            self.generate_from_desc_btn.setToolTip(
+                "AI will analyze your description and generate matching Danbooru tags"
+            )
+
     def _generate_tags_from_description(self) -> None:
         description = self.description_input.toPlainText().strip()
         if not description:
-            self.statusbar.showMessage("Description is empty. Please enter a description.", 5000)
+            self.statusbar.showMessage("Input is empty. Please enter a description or seed tags.", 5000)
             return
 
         selected_model = self.model_selector.currentData()
@@ -1819,27 +1878,41 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         selected_creativity = self.creativity_selector.currentData() or "creative"
         self._last_creativity_mode = selected_creativity
 
-        tips = [
-            "💡 Tip: Include a subject, action, and setting for best results",
-            "💡 Tip: Re-running the same prompt can produce different (better) tags",
-            "💡 Tip: Creative mode adds style/lighting tags — try it for richer atmosphere",
-            "💡 Tip: If tags miss a key element, name it explicitly in your description",
-            "💡 Tip: Concrete visual details beat abstract concepts",
-        ]
+        enrich_mode = self.desc_input_mode.currentData() == "seed_tags"
+
+        if enrich_mode:
+            tips = [
+                "💡 Tip: Add more seed tags for richer expansion results",
+                "💡 Tip: Try different creativity modes for varied complementary tags",
+                "💡 Tip: Creative mode adds style/lighting tags — try it for richer atmosphere",
+                "💡 Tip: The AI preserves your seed tags and only adds new ones",
+                "💡 Tip: Re-run for different variations",
+            ]
+        else:
+            tips = [
+                "💡 Tip: Include a subject, action, and setting for best results",
+                "💡 Tip: Re-running the same prompt can produce different (better) tags",
+                "💡 Tip: Creative mode adds style/lighting tags — try it for richer atmosphere",
+                "💡 Tip: If tags miss a key element, name it explicitly in your description",
+                "💡 Tip: Concrete visual details beat abstract concepts",
+            ]
         tip = random.choice(tips)
+
         self.generate_from_desc_btn.setEnabled(False)
+        action_label = "Enriching" if enrich_mode else "Generating"
         self.desc_tags_display.setPlainText(
-            "⏳ Generating tags... (this may take a while)\n\n"
+            f"⏳ {action_label} tags... (this may take a while)\n\n"
             f"Mode: {selected_creativity.capitalize()}\n"
             f"{tip}"
         )
         self.statusbar.showMessage(
-            f"Connecting to Ollama and generating tags in {selected_creativity} mode..."
+            f"Connecting to Ollama and {action_label.lower()} tags in {selected_creativity} mode..."
         )
 
         threshold = self.post_count_threshold.value()
         self._tag_worker = DescriptionTagWorker(
             description, selected_model, selected_creativity, threshold,
+            enrich_mode=enrich_mode,
         )
         self._tag_worker.finished.connect(self._on_tags_generated)
         self._tag_worker.error.connect(self._on_tag_generation_error)
@@ -2336,7 +2409,7 @@ def main() -> None:
     app = QtWidgets.QApplication([])
     app.setApplicationName("Img-Tagboru")
     app.setApplicationDisplayName("Img-Tagboru")
-    app.setApplicationVersion("1.3.1")
+    app.setApplicationVersion("1.3.2")
 
     window = MainWindow()
     window.show()
