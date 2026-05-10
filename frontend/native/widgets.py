@@ -136,8 +136,83 @@ class HelpDialog(QtWidgets.QDialog):
             <li>Describe what you want to see in English</li>
             <li>AI generates Danbooru-style tags from your description</li>
             <li>Requires Ollama installed (see setup below)</li>
-            <li>Choose creativity mode: Safe → Creative → Mature → Extreme</li>
+            <li>Choose creativity mode: Safe → Creative → Mature</li>
+            <li><b>Re-run for variety:</b> The AI uses temperature sampling — running the same prompt again can produce different (sometimes better) results</li>
         </ul>
+
+        <h3 style="color: #ff9933;">✍️ Writing Better Descriptions</h3>
+        <p>The more concrete visual detail you provide, the better the tags. The AI maps descriptions to tags across these dimensions:</p>
+        <table style="width:100%; border-collapse: collapse; margin: 8px 0; font-size: 12px;">
+            <tr style="background-color: #2a2a2a;">
+                <th style="padding: 6px; text-align: left; border: 1px solid #444; color: #4da6ff;">Dimension</th>
+                <th style="padding: 6px; text-align: left; border: 1px solid #444; color: #4da6ff;">Good Example</th>
+                <th style="padding: 6px; text-align: left; border: 1px solid #444; color: #4da6ff;">Poor Example</th>
+            </tr>
+            <tr>
+                <td style="padding: 6px; border: 1px solid #444;"><b>Subject</b><br><span style="color: #888;">who is in the scene?</span></td>
+                <td style="padding: 6px; border: 1px solid #444; color: #66ff66;">"a knight", "two elves", "a catgirl"</td>
+                <td style="padding: 6px; border: 1px solid #444; color: #ff6666;">"someone", "a character"</td>
+            </tr>
+            <tr style="background-color: #222;">
+                <td style="padding: 6px; border: 1px solid #444;"><b>Action</b><br><span style="color: #888;">what are they doing?</span></td>
+                <td style="padding: 6px; border: 1px solid #444; color: #66ff66;">"baking cookies", "kissing", "standing"</td>
+                <td style="padding: 6px; border: 1px solid #444; color: #ff6666;">"existing", "being"</td>
+            </tr>
+            <tr>
+                <td style="padding: 6px; border: 1px solid #444;"><b>Setting</b><br><span style="color: #888;">where does this happen?</span></td>
+                <td style="padding: 6px; border: 1px solid #444; color: #66ff66;">"in a forest clearing", "on the train"</td>
+                <td style="padding: 6px; border: 1px solid #444; color: #ff6666;">(no setting mentioned)</td>
+            </tr>
+            <tr style="background-color: #222;">
+                <td style="padding: 6px; border: 1px solid #444;"><b>Atmosphere</b><br><span style="color: #888;">mood / lighting</span></td>
+                <td style="padding: 6px; border: 1px solid #444; color: #66ff66;">"cozy", "stormy night", "romantic"</td>
+                <td style="padding: 6px; border: 1px solid #444; color: #ff6666;">(no mood mentioned)</td>
+            </tr>
+            <tr>
+                <td style="padding: 6px; border: 1px solid #444;"><b>Clothing</b><br><span style="color: #888;">what are they wearing?</span></td>
+                <td style="padding: 6px; border: 1px solid #444; color: #66ff66;">"a maid outfit", "armor and cape"<br><span style="color: #888;">(or implied by archetype: witch → hat)</span></td>
+                <td style="padding: 6px; border: 1px solid #444; color: #ff6666;">(no clothing clues)</td>
+            </tr>
+        </table>
+
+        <h4 style="color: #ffcc66;">Mode Selection Guide</h4>
+        <table style="width:100%; border-collapse: collapse; margin: 8px 0; font-size: 12px;">
+            <tr style="background-color: #2a2a2a;">
+                <th style="padding: 6px; text-align: left; border: 1px solid #444; color: #4da6ff;">Mode</th>
+                <th style="padding: 6px; text-align: left; border: 1px solid #444; color: #4da6ff;">Best For</th>
+                <th style="padding: 6px; text-align: left; border: 1px solid #444; color: #4da6ff;">Tags Include</th>
+            </tr>
+            <tr>
+                <td style="padding: 6px; border: 1px solid #444; color: #66ff66;">🟢 Safe</td>
+                <td style="padding: 6px; border: 1px solid #444;">SFW, character portraits, scenery</td>
+                <td style="padding: 6px; border: 1px solid #444;">No sexual content — groping/kissing gets softened to blush/romance</td>
+            </tr>
+            <tr style="background-color: #222;">
+                <td style="padding: 6px; border: 1px solid #444; color: #ff9933;">🟡 Creative</td>
+                <td style="padding: 6px; border: 1px solid #444;">Action, atmosphere, mild romance</td>
+                <td style="padding: 6px; border: 1px solid #444;">Style/lighting tags, kissing, hand-holding, suggestive — no explicit</td>
+            </tr>
+            <tr>
+                <td style="padding: 6px; border: 1px solid #444; color: #ff6666;">🔴 Mature</td>
+                <td style="padding: 6px; border: 1px solid #444;">NSFW, explicit sexual content</td>
+                <td style="padding: 6px; border: 1px solid #444;">Full sexual vocabulary, body language, intimate settings</td>
+            </tr>
+        </table>
+
+        <h4 style="color: #ff6666;">Common Pitfalls</h4>
+        <ul style="font-size: 12px;">
+            <li><b>Too vague:</b> "a witch" → few generic tags. Try "a witch flying through a dark storm"</li>
+            <li><b>Abstract concepts:</b> "a feeling of dread" → can't map to visual Danbooru tags. Describe what that looks like instead</li>
+            <li><b>Franchise names:</b> "Hollow Knight", "Disgaea" → may collide with tag namespace. Use generic descriptions</li>
+        </ul>
+
+        <h4 style="color: #66ff66;">If Results Are Poor</h4>
+        <ol style="font-size: 12px; margin: 5px 0;">
+            <li><b>Add detail:</b> Make sure you have a subject + action + setting</li>
+            <li><b>Re-run:</b> Temperature sampling means different runs produce different results</li>
+            <li><b>Try another mode:</b> Creative often produces richer atmospheric tags than Safe</li>
+            <li><b>Be explicit:</b> If a tag is missing, name the element directly</li>
+        </ol>
 
         <h3 style="color: #ff9933;">💡 Pro Tips</h3>
         <ul>
@@ -161,11 +236,53 @@ class HelpDialog(QtWidgets.QDialog):
             <li>For GPU: Install NVIDIA CUDA or AMD ROCm drivers</li>
             <li>Start Ollama: run <code>ollama serve</code> in terminal</li>
             <li>Verify GPU: run <code>ollama ps</code> (shows 'GPU loaded')</li>
-            <li>Pull a model: <code>ollama pull richardyoung/qwen3-14b-abliterated:latest</code></li>
-            <li>Recommended: <b>richardyoung/qwen3-14b-abliterated:latest</b></li>
+            <li>Pull the recommended model: <code>ollama pull richardyoung/qwen3-14b-abliterated</code></li>
         </ol>
-        <p style='color: #ffcc66; font-size: 11px;'>
-            💡 <b>Tip:</b> Without GPU, 14B models take 5-30 min. With GPU: 10-60 seconds.
+        
+        <h4 style="color: #66ff66;">⭐ Recommended Model — Tested & Verified</h4>
+        <table style="width:100%; border-collapse: collapse; margin: 8px 0; font-size: 11px;">
+            <tr style="background-color: #2a2a2a;">
+                <th style="padding: 6px; text-align: left; border: 1px solid #444; color: #4da6ff;">Model</th>
+                <th style="padding: 6px; text-align: left; border: 1px solid #444; color: #4da6ff;">Size</th>
+                <th style="padding: 6px; text-align: left; border: 1px solid #444; color: #4da6ff;">Quality</th>
+                <th style="padding: 6px; text-align: left; border: 1px solid #444; color: #4da6ff;">Pull Command</th>
+            </tr>
+            <tr>
+                <td style="padding: 6px; border: 1px solid #444; color: #66ff66;"><b>🏆 Qwen3-14B-Abliterated</b><br><span style="color: #888;">Default · 100% reliable in testing · 16GB VRAM</span></td>
+                <td style="padding: 6px; border: 1px solid #444;">14B<br><span style="color: #888;">~9GB Q4_K_M</span></td>
+                <td style="padding: 6px; border: 1px solid #444;">⭐⭐⭐⭐⭐<br>Verified</td>
+                <td style="padding: 6px; border: 1px solid #444; font-family: monospace; font-size: 10px;">ollama pull richardyoung/qwen3-14b-abliterated</td>
+            </tr>
+        </table>
+
+        <h4 style="color: #888;">Alternative Models (not tested — may produce worse or zero results)</h4>
+        <table style="width:100%; border-collapse: collapse; margin: 8px 0; font-size: 11px;">
+            <tr style="background-color: #2a2a2a;">
+                <th style="padding: 6px; text-align: left; border: 1px solid #444; color: #4da6ff;">Model</th>
+                <th style="padding: 6px; text-align: left; border: 1px solid #444; color: #4da6ff;">Size</th>
+                <th style="padding: 6px; text-align: left; border: 1px solid #444; color: #4da6ff;">Pull Command</th>
+            </tr>
+            <tr>
+                <td style="padding: 6px; border: 1px solid #444; color: #aaa;"><b>Qwen3.6-35B-uncensored</b><br><span style="color: #888;">MoE: 3B active / 35B total</span></td>
+                <td style="padding: 6px; border: 1px solid #444;">~6GB</td>
+                <td style="padding: 6px; border: 1px solid #444; font-family: monospace; font-size: 10px;">ollama pull llmfan46/qwen3.6-35b-a3b-uncensored-heretic</td>
+            </tr>
+            <tr style="background-color: #222;">
+                <td style="padding: 6px; border: 1px solid #444; color: #aaa;"><b>Gemma-4-26B-uncensored</b><br><span style="color: #888;">MoE: 4B active / 26B total</span></td>
+                <td style="padding: 6px; border: 1px solid #444;">~8GB</td>
+                <td style="padding: 6px; border: 1px solid #444; font-family: monospace; font-size: 10px;">ollama pull llmfan46/gemma-4-26b-a4b-it-ultra-uncensored-heretic</td>
+            </tr>
+            <tr>
+                <td style="padding: 6px; border: 1px solid #444; color: #aaa;"><b>Qwen3.5-35B-uncensored</b><br><span style="color: #888;">MoE: 3B active / 35B total</span></td>
+                <td style="padding: 6px; border: 1px solid #444;">~6GB</td>
+                <td style="padding: 6px; border: 1px solid #444; font-family: monospace; font-size: 10px;">ollama pull llmfan46/qwen3.5-35b-a3b-uncensored-heretic</td>
+            </tr>
+        </table>
+        
+        <p style='color: #ffcc66; font-size: 11px; margin-top: 8px;'>
+            💡 <b>Tip:</b> Qwen3-14B-Abliterated is the only model verified with 100% reliability (18/18 batch test).<br>
+            💡 <b>VRAM:</b> Qwen3-14B uses ~9GB at Q4_K_M, fits comfortably in 16GB GPUs.<br>
+            💡 <b>Explicit content:</b> All recommended models are abliterated/uncensored for NSFW tags.
         </p>
 
         <hr style="border: 1px solid #444;">

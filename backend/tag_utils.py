@@ -70,16 +70,51 @@ def apply_filters(frame: pd.DataFrame, blacklist: Iterable[str], whitelist: Iter
     """Mark tags for exclusion based on blacklist / whitelist.
 
     Returns a copy of *frame* with the ``include`` column adjusted.
+
+    Each blacklist/whitelist entry may be a literal tag name or a regex
+    pattern wrapped in ``/slashes/`` (e.g. ``/^bad_/`` or ``/.*_old$/``).
     """
-    blacklist_set = {tag.strip().lower() for tag in blacklist if tag.strip()}
-    whitelist_set = {tag.strip().lower() for tag in whitelist if tag.strip()}
+    blacklist_literal: set[str] = set()
+    blacklist_regex: list[re.Pattern] = []
+    for raw in blacklist:
+        raw = raw.strip()
+        if not raw:
+            continue
+        if raw.startswith("/") and raw.endswith("/") and len(raw) > 2:
+            try:
+                blacklist_regex.append(re.compile(raw[1:-1], re.IGNORECASE))
+            except re.error:
+                blacklist_literal.add(raw.lower())
+        else:
+            blacklist_literal.add(raw.lower())
+
+    whitelist_literal: set[str] = set()
+    whitelist_regex: list[re.Pattern] = []
+    for raw in whitelist:
+        raw = raw.strip()
+        if not raw:
+            continue
+        if raw.startswith("/") and raw.endswith("/") and len(raw) > 2:
+            try:
+                whitelist_regex.append(re.compile(raw[1:-1], re.IGNORECASE))
+            except re.error:
+                whitelist_literal.add(raw.lower())
+        else:
+            whitelist_literal.add(raw.lower())
 
     def keep_row(tag: str) -> bool:
         normalized = str(tag).strip().lower()
-        if blacklist_set and normalized in blacklist_set:
+        if normalized in blacklist_literal:
             return False
-        if whitelist_set and normalized not in whitelist_set:
-            return False
+        for pattern in blacklist_regex:
+            if pattern.search(normalized):
+                return False
+        if whitelist_literal:
+            if normalized not in whitelist_literal:
+                return False
+        elif whitelist_regex:
+            if not any(p.search(normalized) for p in whitelist_regex):
+                return False
         return True
 
     result = frame.copy()

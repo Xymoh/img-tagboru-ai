@@ -1,7 +1,29 @@
 from __future__ import annotations
 
+import atexit
+import shutil
 import tempfile
 from pathlib import Path
+
+
+# ---------------------------------------------------------------------------
+# Temp-directory management — written once, cleaned up on exit
+# ---------------------------------------------------------------------------
+
+_TMP_DIR = Path(tempfile.gettempdir()) / "img-tagger-assets"
+_TMP_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _cleanup_temp_assets() -> None:
+    """Remove the img-tagger-assets directory on process exit."""
+    try:
+        if _TMP_DIR.exists():
+            shutil.rmtree(_TMP_DIR, ignore_errors=True)
+    except Exception:
+        pass  # best-effort cleanup
+
+
+atexit.register(_cleanup_temp_assets)
 
 
 # ---------------------------------------------------------------------------
@@ -9,17 +31,19 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 def _write_checkmark_svg() -> str:
-    """Write a white checkmark SVG to a temp file and return its path."""
-    svg_content = (
-        '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14">'
-        '<polyline points="2,7 6,11 12,3" stroke="white" stroke-width="2.2" '
-        'stroke-linecap="round" stroke-linejoin="round" fill="none"/>'
-        '</svg>'
-    )
-    tmp_dir = Path(tempfile.gettempdir()) / "img-tagger-assets"
-    tmp_dir.mkdir(parents=True, exist_ok=True)
-    svg_path = tmp_dir / "checkmark.svg"
-    svg_path.write_text(svg_content, encoding="utf-8")
+    """Write a white checkmark SVG to a temp file and return its path.
+
+    The file is only written once; subsequent calls return the cached path.
+    """
+    svg_path = _TMP_DIR / "checkmark.svg"
+    if not svg_path.exists():
+        svg_content = (
+            '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14">'
+            '<polyline points="2,7 6,11 12,3" stroke="white" stroke-width="2.2" '
+            'stroke-linecap="round" stroke-linejoin="round" fill="none"/>'
+            '</svg>'
+        )
+        svg_path.write_text(svg_content, encoding="utf-8")
     return str(svg_path).replace("\\", "/")
 
 
@@ -33,9 +57,9 @@ def _write_arrow_svgs(
 
     *color* and *hover_color* are SVG stroke colours; *suffix* is appended
     to the file name so we can generate distinct sets per spinbox.
+
+    Each SVG file is written only once; subsequent calls return cached paths.
     """
-    tmp_dir = Path(tempfile.gettempdir()) / "img-tagger-assets"
-    tmp_dir.mkdir(parents=True, exist_ok=True)
 
     def _svg(points: str, stroke: str) -> str:
         return (
@@ -45,17 +69,21 @@ def _write_arrow_svgs(
             '</svg>'
         )
 
-    up_normal = tmp_dir / f"arrow_up{suffix}.svg"
-    up_normal.write_text(_svg("1,5 5,1 9,5", color), encoding="utf-8")
+    up_normal = _TMP_DIR / f"arrow_up{suffix}.svg"
+    if not up_normal.exists():
+        up_normal.write_text(_svg("1,5 5,1 9,5", color), encoding="utf-8")
 
-    up_hover = tmp_dir / f"arrow_up_hover{suffix}.svg"
-    up_hover.write_text(_svg("1,5 5,1 9,5", hover_color), encoding="utf-8")
+    up_hover = _TMP_DIR / f"arrow_up_hover{suffix}.svg"
+    if not up_hover.exists():
+        up_hover.write_text(_svg("1,5 5,1 9,5", hover_color), encoding="utf-8")
 
-    down_normal = tmp_dir / f"arrow_down{suffix}.svg"
-    down_normal.write_text(_svg("1,1 5,5 9,1", color), encoding="utf-8")
+    down_normal = _TMP_DIR / f"arrow_down{suffix}.svg"
+    if not down_normal.exists():
+        down_normal.write_text(_svg("1,1 5,5 9,1", color), encoding="utf-8")
 
-    down_hover = tmp_dir / f"arrow_down_hover{suffix}.svg"
-    down_hover.write_text(_svg("1,1 5,5 9,1", hover_color), encoding="utf-8")
+    down_hover = _TMP_DIR / f"arrow_down_hover{suffix}.svg"
+    if not down_hover.exists():
+        down_hover.write_text(_svg("1,1 5,5 9,1", hover_color), encoding="utf-8")
 
     return (
         str(up_normal).replace("\\", "/"),

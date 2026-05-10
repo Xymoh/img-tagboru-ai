@@ -87,7 +87,7 @@ pip install onnxruntime-gpu
 6. Start the UI:
 
 ```powershell
-python frontend/native_app.py
+python frontend/native/main_window.py
 ```
 
 Optional: start the API server in another terminal.
@@ -109,9 +109,9 @@ This project can be packaged as a standalone Windows desktop exe.
 .\build_exe.ps1
 ```
 
-3. The packaged app will be written to `dist\img-tagger.exe`.
+3. The packaged app will be written to `dist\Img-Tagboru.exe`.
 
-GitHub Releases are also supported: push a tag like `v1.0.0` and the Windows build workflow will publish `dist\img-tagger.exe` as a release asset.
+GitHub Releases are also supported: push a tag like `v1.0.0` and the Windows build workflow will publish `dist\Img-Tagboru.exe` as a release asset.
 
 Notes:
 
@@ -119,25 +119,72 @@ Notes:
 - The first run still downloads the model files to the user's cache folder.
 - If Windows Defender or SmartScreen warns about the exe, that is normal for unsigned local builds.
 
-## Connect to a Vite app
+## FastAPI Endpoints
 
-Your Vite frontend can talk to this app over the local API. Use `http://127.0.0.1:8000/tag` for single-image tagging and `http://127.0.0.1:8000/health` for a quick availability check.
+Start the API server:
 
-Because the API enables CORS for `http://localhost:5173` and `http://127.0.0.1:5173`, a local Vite dev server can fetch captions directly.
+```powershell
+python -m uvicorn backend.api:app --host 127.0.0.1 --port 8000 --reload
+```
 
-Example fetch from Vite:
+### `GET /health`
+
+Returns a simple health-check response. Useful for monitoring and readiness probes.
+
+**Response** `200 OK`
+```json
+{"status": "ok"}
+```
+
+### `POST /tag`
+
+Tags a single image and returns Danbooru-style tags with confidence scores.
+
+**Request** — `multipart/form-data`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `file` | file | *required* | Image file (PNG, JPG, WebP, BMP, GIF) |
+| `general_threshold` | float | `0.35` | Minimum confidence for general tags (0.0–1.0) |
+| `character_threshold` | float | `0.85` | Minimum confidence for character tags (0.0–1.0) |
+| `normalize_pixels` | bool | `false` | Normalize pixels to 0–1 range before inference |
+| `use_mcut` | bool | `false` | Use MCut automatic threshold detection |
+| `limit` | int | `80` | Maximum number of tags to return (0 = unlimited) |
+
+**Response** `200 OK`
+```json
+{
+  "caption": "1girl, smile, blue_eyes, solo, ...",
+  "tags": [
+    {"tag": "1girl", "confidence": 0.9876, "category": 0, "category_label": "general"},
+    {"tag": "hatsune_miku", "confidence": 0.9521, "category": 4, "category_label": "character"}
+  ]
+}
+```
+
+**Category labels:** `general` (0), `artist` (1), `copyright` (3), `character` (4), `meta` (5).
+
+### CORS
+
+The API enables CORS for `http://localhost:5173` and `http://127.0.0.1:5173` (Vite dev server defaults). Configure additional origins in [`backend/api.py`](backend/api.py:19).
+
+### Connect to a Vite app
+
+Example fetch from a Vite frontend:
 
 ```ts
 const formData = new FormData();
 formData.append('file', file);
-formData.append('threshold', '0.35');
+formData.append('general_threshold', '0.35');
 
 const response = await fetch('http://127.0.0.1:8000/tag', {
-	method: 'POST',
-	body: formData,
+  method: 'POST',
+  body: formData,
 });
 
 const result = await response.json();
+// result.caption → "1girl, smile, blue_eyes, ..."
+// result.tags → [{tag, confidence, category, category_label}, ...]
 ```
 ## Notes
 
