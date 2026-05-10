@@ -12,7 +12,7 @@ if (-not (Test-Path $python)) {
 & $python -m PyInstaller `
     --noconfirm `
     --clean `
-    --name img-tagger `
+    --name Img-Tagboru `
     --onefile `
     --windowed `
     --collect-all PySide6 `

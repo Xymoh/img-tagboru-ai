@@ -1,12 +1,128 @@
 from __future__ import annotations
 
 import csv
-import os
+import logging
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 from PySide6 import QtCore, QtWidgets
 
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# TagTrie — prefix tree for O(k) autocomplete lookups (not O(n) scan)
+# ---------------------------------------------------------------------------
+
+class TagTrie:
+    """Prefix tree mapping *normalised* tag prefixes to original tag names.
+
+    Building the trie is O(n × len) but done once at load time.
+    Each keystroke lookup is O(len(token)) — independent of tag count.
+    """
+
+    __slots__ = ("_roots", )
+
+    def __init__(self) -> None:
+        # _roots: normalised first-char → node dict
+        self._roots: dict[str, dict] = {}
+
+    def insert(self, original: str, normalised: str) -> None:
+        """Insert a single (*original*, *normalised*) tag pair into the trie."""
+        if not normalised:
+            return
+        char = normalised[0]
+        if char not in self._roots:
+            self._roots[char] = {}
+        node = self._roots[char]
+        for c in normalised[1:]:
+            if c not in node:
+                node[c] = {}
+            node = node[c]
+        # leaf: store original tags (multiple may share normalised form)
+        node.setdefault("__tags__", []).append(original)
+
+    @staticmethod
+    def _normalise(s: str) -> str:
+        """Strip underscores, dashes and spaces for fuzzy comparison."""
+        return s.replace('_', '').replace('-', '').replace(' ', '').lower()
+
+    def build(self, tags: list[str]) -> None:
+        """Populate the trie from a list of original tag names."""
+        self._roots.clear()
+        for tag in tags:
+            self.insert(tag, self._normalise(tag))
+
+    def prefix_matches(self, token: str, max_results: int = 20) -> list[str]:
+        """Return up to *max_results* tags whose normalised form starts with *token*."""
+        token_norm = self._normalise(token)
+        if not token_norm:
+            return []
+
+        char = token_norm[0]
+        node = self._roots.get(char)
+        if node is None:
+            return []
+
+        # Walk the trie down to the node corresponding to token_norm
+        for c in token_norm[1:]:
+            if c not in node:
+                return []
+            node = node[c]
+
+        # Collect all leaf tags under this node via DFS
+        results: list[str] = []
+        self._collect(node, results, max_results)
+        return results
+
+    def _collect(self, node: dict, results: list[str], limit: int) -> None:
+        """DFS traversal to gather leaf tags."""
+        if len(results) >= limit:
+            return
+        tags = node.get("__tags__")
+        if tags:
+            for tag in tags:
+                if len(results) >= limit:
+                    return
+                results.append(tag)
+        for key, child in sorted(node.items()):
+            if key == "__tags__":
+                continue
+            self._collect(child, results, limit)
+
+
+# ---------------------------------------------------------------------------
+# CSV loader thread — avoids blocking the Qt main thread
+# ---------------------------------------------------------------------------
+
+class TagLoadWorker(QtCore.QThread):
+    """Load Danbooru tags from CSV in a background thread."""
+
+    finished_signal = QtCore.Signal(list)
+    error_signal = QtCore.Signal(str)
+
+    def __init__(self, csv_path: str) -> None:
+        super().__init__()
+        self._csv_path = csv_path
+
+    def run(self) -> None:
+        tags: list[str] = []
+        try:
+            with open(self._csv_path, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    tag_name = row.get("name", "").strip().lower()
+                    if tag_name:
+                        tags.append(tag_name)
+            self.finished_signal.emit(tags)
+        except Exception as e:
+            self.error_signal.emit(str(e))
+
+
+# ---------------------------------------------------------------------------
+# CaptionCompleterMixin
+# ---------------------------------------------------------------------------
 
 class CaptionCompleterMixin:
     """Mixin that adds Danbooru-tag autocomplete to a caption QPlainTextEdit.
@@ -39,26 +155,37 @@ class CaptionCompleterMixin:
         return None
 
     def _load_danbooru_tags(self) -> list[str]:
-        """Load Danbooru tags from CSV file for autocomplete."""
+        """Load Danbooru tags from CSV file for autocomplete.
+
+        Returns an empty list if the file cannot be found; the actual
+        loading is dispatched to a background thread via
+        :meth:`_load_danbooru_tags_async`.
+        """
         csv_path = self._find_data_file("danbooru_tags_post_count.csv")
-
         if csv_path is None:
-            print("Danbooru tags file not found (danbooru_tags_post_count.csv)")
+            logger.warning("Danbooru tags file not found (danbooru_tags_post_count.csv)")
             return []
 
-        tags: list[str] = []
-        try:
-            with open(csv_path, "r", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    tag_name = row.get("name", "").strip().lower()
-                    if tag_name:
-                        tags.append(tag_name)
-            print(f"Loaded {len(tags)} Danbooru tags for autocomplete")
-            return sorted(tags)
-        except Exception as e:
-            print(f"Warning: Could not load Danbooru tags: {e}")
-            return []
+        self._tag_load_worker = TagLoadWorker(str(csv_path))
+        self._tag_load_worker.finished_signal.connect(self._on_tags_loaded)
+        self._tag_load_worker.error_signal.connect(self._on_tags_load_error)
+        self._tag_load_worker.start()
+        return []  # Will be populated async via _on_tags_loaded
+
+    def _on_tags_loaded(self, tags: list[str]) -> None:
+        """Slot: called when CSV loading completes in the background."""
+        self.danbooru_tags = sorted(tags)
+        logger.info("Loaded %d Danbooru tags for autocomplete", len(tags))
+        # Build the prefix trie for O(k) lookups
+        self._tag_trie = TagTrie()
+        self._tag_trie.build(self.danbooru_tags)
+        # Now that tags are available, wire up the completer if needed
+        if hasattr(self, 'caption_edit') and self.caption_edit is not None:
+            self._setup_caption_completer()
+
+    def _on_tags_load_error(self, error: str) -> None:
+        """Slot: called on CSV loading error."""
+        logger.warning("Could not load Danbooru tags: %s", error)
 
     # ---------- setup ---------------------------------------------------------
 
@@ -121,16 +248,11 @@ class CaptionCompleterMixin:
 
     # ---------- popup management ----------------------------------------------
 
-    @staticmethod
-    def _normalize_tag(s: str) -> str:
-        """Strip underscores, dashes and spaces for fuzzy comparison."""
-        return s.replace('_', '').replace('-', '').replace(' ', '').lower()
-
     def _on_caption_text_changed(self) -> None:
         """Show tag suggestions as the user types in caption_edit.
 
-        Matching is fuzzy: ``onback``, ``on back`` and ``on-back``
-        all match the Danbooru tag ``on_back``.
+        Uses a prefix trie (:class:`TagTrie`) for O(k) lookups instead
+        of the old O(n) linear scan through all tags.
         """
         if self._completing or not self.danbooru_tags or not hasattr(self, '_completer_popup'):
             return
@@ -141,13 +263,18 @@ class CaptionCompleterMixin:
             self._hide_completer()
             return
 
-        token_norm = self._normalize_tag(token)
-        matches: list[str] = []
-        for tag in self.danbooru_tags:
-            if self._normalize_tag(tag).startswith(token_norm):
-                matches.append(tag)
-                if len(matches) >= 20:
-                    break
+        trie = getattr(self, '_tag_trie', None)
+        if trie is not None:
+            matches = trie.prefix_matches(token)
+        else:
+            # Fallback: simple linear scan (should not happen once trie is built)
+            token_norm = TagTrie._normalise(token)
+            matches = []
+            for tag in self.danbooru_tags:
+                if TagTrie._normalise(tag).startswith(token_norm):
+                    matches.append(tag)
+                    if len(matches) >= 20:
+                        break
 
         if not matches:
             self._hide_completer()

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import io
+import logging
+import random
 import re
 import sys
 import tempfile
@@ -9,6 +11,8 @@ from pathlib import Path
 from typing import Iterable, Sequence
 from urllib.parse import urljoin
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 import pandas as pd
 from PIL import Image, UnidentifiedImageError
@@ -37,7 +41,7 @@ from backend.tag_utils import (
 from frontend.native.completer import CaptionCompleterMixin
 from frontend.native.styles import build_stylesheet
 from frontend.native.widgets import HelpDialog
-from frontend.native.workers import DescriptionTagWorker, ImageLoadWorker
+from frontend.native.workers import DescriptionTagWorker, ImageLoadWorker, ModelOperationWorker
 
 
 # ---------------------------------------------------------------------------
@@ -47,7 +51,7 @@ from frontend.native.workers import DescriptionTagWorker, ImageLoadWorker
 class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Img-Tagboru v1.2")
+        self.setWindowTitle("Img-Tagboru v1.3.1")
         self.resize(1400, 300)
         self.setAcceptDrops(True)
 
@@ -414,10 +418,19 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         model_layout.addWidget(self.model_selector)
         self._refresh_available_models()
 
+        # --- Model management buttons ---
+        model_btn_row = QtWidgets.QHBoxLayout()
+        model_btn_row.setSpacing(4)
         refresh_models_btn = QtWidgets.QPushButton("🔄 Refresh Models")
         refresh_models_btn.setToolTip("Check for newly installed Ollama models")
         refresh_models_btn.clicked.connect(self._refresh_available_models)
-        model_layout.addWidget(refresh_models_btn)
+        model_btn_row.addWidget(refresh_models_btn)
+
+        self.manage_models_btn = QtWidgets.QPushButton("⚙️ Manage Models")
+        self.manage_models_btn.setToolTip("Pull new models, view installed models, or delete unused ones")
+        self.manage_models_btn.clicked.connect(self._show_model_manager)
+        model_btn_row.addWidget(self.manage_models_btn)
+        model_layout.addLayout(model_btn_row)
 
         desc_layout.addWidget(model_group)
 
@@ -435,23 +448,47 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         )
         self.creativity_selector.addItem("🛡️ Safe (literal, conservative)", "safe")
         self.creativity_selector.addItem("✨ Creative (balanced)", "creative")
-        self.creativity_selector.addItem("🔞 Mature (suggestive, nsfw)", "mature")
-        self.creativity_selector.addItem("💀 Extreme (wild ideas)", "extreme")
+        self.creativity_selector.addItem("🔞 Mature (explicit, nsfw)", "mature")
         self.creativity_selector.setCurrentIndex(1)
         creativity_layout.addWidget(self.creativity_selector)
 
         creativity_hint = QtWidgets.QLabel(
             "<b>Mode descriptions:</b><br>"
-            "🛡️ <b>Safe:</b> Literal, conservative tags<br>"
-            "✨ <b>Creative:</b> Balanced, richer scenes<br>"
-            "🔞 <b>Mature:</b> Adult-only, suggestive content<br>"
-            "💀 <b>Extreme:</b> Strongest atmosphere & storytelling"
+            "🛡️ <b>Safe:</b> Literal, conservative tags — no explicit content<br>"
+            "✨ <b>Creative:</b> Balanced, richer scenes with context cues<br>"
+            "🔞 <b>Mature:</b> Adult/explicit content (fellatio, sex, etc.)"
         )
         creativity_hint.setStyleSheet("color: #9ecbff; font-size: 10px; padding: 5px;")
         creativity_hint.setWordWrap(True)
         creativity_layout.addWidget(creativity_hint)
 
         desc_layout.addWidget(creativity_group)
+
+        # --- Post-count threshold (advanced filter) ---
+        threshold_group = QtWidgets.QGroupBox("🔧 Tag Quality Filter")
+        threshold_layout = QtWidgets.QFormLayout(threshold_group)
+        threshold_layout.setSpacing(6)
+
+        self.post_count_threshold = QtWidgets.QSpinBox()
+        self.post_count_threshold.setRange(0, 100000)
+        self.post_count_threshold.setSingleStep(500)
+        self.post_count_threshold.setValue(500)
+        self.post_count_threshold.setToolTip(
+            "Minimum post_count a tag must have on Danbooru to be included.\n"
+            "Higher = only the most established tags. Lower = more variety.\n"
+            "500 means a tag must appear in at least 500 Danbooru posts."
+        )
+        self.post_count_threshold.valueChanged.connect(self._on_threshold_changed)
+        threshold_layout.addRow("Min Post Count:", self.post_count_threshold)
+
+        threshold_hint = QtWidgets.QLabel(
+            "Filters out rare/obscure tags. Set to 0 to disable filtering."
+        )
+        threshold_hint.setStyleSheet("color: #9ecbff; font-size: 10px; padding: 2px;")
+        threshold_hint.setWordWrap(True)
+        threshold_layout.addRow(threshold_hint)
+
+        desc_layout.addWidget(threshold_group)
 
         input_desc_group = QtWidgets.QGroupBox("✍️ Description Input")
         input_desc_layout = QtWidgets.QVBoxLayout(input_desc_group)
@@ -657,7 +694,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         QtWidgets.QMessageBox.about(
             self,
             "About Img-Tagboru",
-            "Img-Tagboru v1.2\n\n"
+            "Img-Tagboru v1.3.1\n\n"
             "Local Anime Image Tagger\n"
             "WD14-style tagging for anime images and LoRA training.\n\n"
             "Features:\n"
@@ -815,12 +852,15 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         parsed = urlparse(url)
         return f"{parsed.scheme}://{parsed.netloc}/"
 
+    # Maximum bytes to download for a single web image (100 MiB safety cap).
+    _MAX_WEB_IMAGE_BYTES: int = 100 * 1024 * 1024
+
     def _download_web_image_to_temp(self, url: str) -> Path | None:
         """Download a web image to a temp file. Shows loading overlay while downloading."""
         self._show_loading_overlay(f"Downloading web image…\n{url}")
         QtCore.QCoreApplication.processEvents()
         try:
-            print(f"[DEBUG] Starting download of: {url}")
+            logger.debug("Starting download of: %s", url)
 
             referer = self._origin_referer(url)
             headers_variants = [
@@ -844,27 +884,43 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
 
             for attempt, headers in enumerate(headers_variants):
                 try:
-                    print(f"[DEBUG] Attempt {attempt + 1} with headers: {list(headers.keys())}")
+                    logger.debug("Attempt %d with headers: %s", attempt + 1, list(headers.keys()))
                     req = urllib.request.Request(url, headers=headers)
                     with urllib.request.urlopen(req, timeout=15) as response:
+                        # --- Content-Length safety check -----------------------
+                        content_length_raw = response.headers.get("Content-Length")
+                        if content_length_raw is not None:
+                            try:
+                                content_length = int(content_length_raw)
+                            except ValueError:
+                                content_length = -1
+                            if content_length > self._MAX_WEB_IMAGE_BYTES:
+                                logger.warning(
+                                    "Rejected URL (Content-Length %d > %d max): %s",
+                                    content_length,
+                                    self._MAX_WEB_IMAGE_BYTES,
+                                    url,
+                                )
+                                continue
+                        # ------------------------------------------------------
                         content_type = (response.headers.get("Content-Type") or "").lower()
                         data = response.read()
-                        print(f"[DEBUG] Downloaded {len(data)} bytes, Content-Type: {content_type}")
+                        logger.debug("Downloaded %d bytes, Content-Type: %s", len(data), content_type)
 
                         if (
                             content_type
                             and content_type not in ("application/octet-stream", "")
                             and "image/" not in content_type
                         ):
-                            print(f"[DEBUG] Rejected due to Content-Type: {content_type}")
+                            logger.debug("Rejected due to Content-Type: %s", content_type)
                             continue
 
                         try:
                             img = Image.open(io.BytesIO(data))
                             img.load()
-                            print(f"[DEBUG] PIL validation successful, format: {img.format}")
+                            logger.debug("PIL validation successful, format: %s", img.format)
                         except (UnidentifiedImageError, OSError) as e:
-                            print(f"[DEBUG] PIL validation failed: {e}")
+                            logger.debug("PIL validation failed: %s", e)
                             continue
 
                         temp_dir = Path(tempfile.gettempdir()) / "img-tagger-web"
@@ -873,21 +929,21 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
                         ext = ext if ext in ("png", "jpeg", "jpg", "webp", "bmp", "gif") else "jpg"
                         temp_path = temp_dir / f"web_{uuid4().hex[:8]}.{ext}"
                         temp_path.write_bytes(data)
-                        print(f"[DEBUG] Saved to {temp_path}")
+                        logger.debug("Saved to %s", temp_path)
                         self._hide_loading_overlay()
                         return temp_path
                 except urllib.error.HTTPError as e:
-                    print(f"[DEBUG] HTTP Error {e.code} on attempt {attempt + 1}")
+                    logger.debug("HTTP Error %s on attempt %d", e.code, attempt + 1)
                     if attempt == len(headers_variants) - 1:
                         raise
                     continue
                 except Exception as e:
-                    print(f"[DEBUG] Error on attempt {attempt + 1}: {e}")
+                    logger.debug("Error on attempt %d: %s", attempt + 1, e)
                     if attempt == len(headers_variants) - 1:
                         raise
                     continue
         except Exception as e:
-            print(f"[DEBUG] Download failed with exception: {type(e).__name__}: {e}")
+            logger.debug("Download failed with exception: %s: %s", type(e).__name__, e)
             self._hide_loading_overlay()
             return None
 
@@ -966,8 +1022,8 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
 
         # Image URLs first, then ambiguous others, page URLs last
         unique = image_urls + other_urls + page_urls
-        print(f"[DEBUG] URL candidates: {len(unique)} total "
-              f"(image={len(image_urls)}, other={len(other_urls)}, page={len(page_urls)})")
+        logger.debug("URL candidates: %d total (image=%d, other=%d, page=%d)",
+                     len(unique), len(image_urls), len(other_urls), len(page_urls))
         return unique
 
     def dropEvent(self, event: QtGui.QDropEvent) -> None:
@@ -995,37 +1051,37 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
 
         # 2) Qt native image
         if mime_data.hasImage():
-            print("[DEBUG] Attempting to use Qt's native image support via hasImage()")
+            logger.debug("Attempting to use Qt's native image support via hasImage()")
             try:
                 image = QtGui.QImage(mime_data.imageData())
                 if not image.isNull():
-                    print("[DEBUG] Successfully got QImage from mime_data")
+                    logger.debug("Successfully got QImage from mime_data")
                     temp_path = self._save_qimage_temp(image, "dragged")
                     if temp_path is not None:
-                        print(f"[DEBUG] Saved QImage to {temp_path}")
+                        logger.debug("Saved QImage to %s", temp_path)
                         self._load_paths([temp_path])
                         self.statusbar.showMessage("Loaded dropped image.", 5000)
                         event.acceptProposedAction()
                         return
             except Exception as e:
-                print(f"[DEBUG] Qt image handling failed: {e}")
+                logger.debug("Qt image handling failed: %s", e)
 
         # 3) Raw image data from any MIME type
-        print(f"[DEBUG] Available MIME formats: {mime_data.formats()}")
+        logger.debug("Available MIME formats: %s", mime_data.formats())
         for fmt in mime_data.formats():
-            print(f"[DEBUG] Trying to extract image from format: {fmt}")
+            logger.debug("Trying to extract image from format: %s", fmt)
             try:
                 image_bytes = mime_data.data(fmt)
                 if image_bytes and len(image_bytes) > 500:
-                    print(f"[DEBUG] Found {len(image_bytes)} bytes in format {fmt}")
+                    logger.debug("Found %d bytes in format %s", len(image_bytes), fmt)
 
-                    print(f"[DEBUG] Attempting QImage.fromData() on {fmt}")
+                    logger.debug("Attempting QImage.fromData() on %s", fmt)
                     qt_image = QtGui.QImage.fromData(image_bytes)
                     if not qt_image.isNull():
-                        print(f"[DEBUG] QImage.fromData() succeeded for {fmt}")
+                        logger.debug("QImage.fromData() succeeded for %s", fmt)
                         temp_path = self._save_qimage_temp(qt_image, "dragged")
                         if temp_path is not None:
-                            print(f"[DEBUG] Saved QImage to {temp_path}")
+                            logger.debug("Saved QImage to %s", temp_path)
                             self._load_paths([temp_path])
                             self.statusbar.showMessage("Loaded dropped image.", 5000)
                             event.acceptProposedAction()
@@ -1034,7 +1090,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
                     try:
                         img = Image.open(io.BytesIO(image_bytes))
                         img.load()
-                        print(f"[DEBUG] Successfully parsed as {img.format}")
+                        logger.debug("Successfully parsed as %s", img.format)
 
                         temp_dir = Path(tempfile.gettempdir()) / "img-tagger-web"
                         temp_dir.mkdir(parents=True, exist_ok=True)
@@ -1042,27 +1098,27 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
                         ext = ext if ext in ("png", "jpeg", "jpg", "webp", "bmp", "gif") else "jpg"
                         temp_path = temp_dir / f"web_{uuid4().hex[:8]}.{ext}"
                         temp_path.write_bytes(image_bytes)
-                        print(f"[DEBUG] Saved extracted image to {temp_path}")
+                        logger.debug("Saved extracted image to %s", temp_path)
                         self._load_paths([temp_path])
                         self.statusbar.showMessage("Loaded dropped image.", 5000)
                         event.acceptProposedAction()
                         return
                     except Exception as e:
-                        print(f"[DEBUG] Failed to parse {fmt} as PIL image: {e}")
+                        logger.debug("Failed to parse %s as PIL image: %s", fmt, e)
                         continue
             except Exception as e:
-                print(f"[DEBUG] Error extracting {fmt}: {e}")
+                logger.debug("Error extracting %s: %s", fmt, e)
                 continue
 
         # 4) Web URLs
         candidates = list(self._extract_web_image_candidates(mime_data))
         if candidates:
-            print(f"[DEBUG] Found web image candidates: {candidates}")
+            logger.debug("Found web image candidates: %s", candidates)
         for url in candidates:
-            print(f"[DEBUG] Downloading web image from URL: {url}")
+            logger.debug("Downloading web image from URL: %s", url)
             downloaded = self._download_web_image_to_temp(url)
             if downloaded and downloaded.suffix.lower() in IMAGE_EXTENSIONS | {".png"}:
-                print(f"[DEBUG] Successfully downloaded to {downloaded}")
+                logger.debug("Successfully downloaded to %s", downloaded)
                 self._load_paths([downloaded])
                 self.statusbar.showMessage("Loaded dropped image from web URL.", 5000)
                 event.acceptProposedAction()
@@ -1076,7 +1132,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
                 return
 
         all_formats = mime_data.formats()
-        print(f"[DEBUG] Drop not recognized. Available MIME types: {all_formats}")
+        logger.debug("Drop not recognized. Available MIME types: %s", all_formats)
         self.statusbar.showMessage(
             "Drop not recognized. Try: drag image file, drag from website, or Ctrl+V.",
             7000,
@@ -1706,13 +1762,28 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
                 models = tagger.list_available_models()
                 for model in models:
                     self.model_selector.addItem(model, model)
+                # Prefer our tested/recommended qwen3-14b-abliterated, then any qwen3 abliterated, then any abliterated/uncensored
                 preferred_model = next(
                     (
                         model
                         for model in models
-                        if "qwen3-14b" in model.lower() or "14b" in model.lower()
+                        if "qwen3-14b-abliterated" in model.lower()
                     ),
-                    models[0] if models else None,
+                    next(
+                        (
+                            model
+                            for model in models
+                            if "qwen3" in model.lower() and "abliterated" in model.lower()
+                        ),
+                        next(
+                            (
+                                model
+                                for model in models
+                                if any(kw in model.lower() for kw in ["abliterated", "uncensored", "heretic", "derestricted"])
+                            ),
+                            models[0] if models else None,
+                        ),
+                    ),
                 )
                 if preferred_model:
                     idx = self.model_selector.findData(preferred_model)
@@ -1722,6 +1793,14 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
             self.model_selector.addItem("(error loading)", None)
         finally:
             self.model_selector.blockSignals(False)
+
+    def _on_threshold_changed(self, value: int) -> None:
+        """Update the tagger's post_count threshold and clear prompt cache."""
+        try:
+            tagger = get_description_tagger()
+            tagger.set_post_count_threshold(value)
+        except Exception:
+            pass  # Tagger not initialized yet — fine
 
     def _generate_tags_from_description(self) -> None:
         description = self.description_input.toPlainText().strip()
@@ -1740,17 +1819,28 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         selected_creativity = self.creativity_selector.currentData() or "creative"
         self._last_creativity_mode = selected_creativity
 
+        tips = [
+            "💡 Tip: Include a subject, action, and setting for best results",
+            "💡 Tip: Re-running the same prompt can produce different (better) tags",
+            "💡 Tip: Creative mode adds style/lighting tags — try it for richer atmosphere",
+            "💡 Tip: If tags miss a key element, name it explicitly in your description",
+            "💡 Tip: Concrete visual details beat abstract concepts",
+        ]
+        tip = random.choice(tips)
         self.generate_from_desc_btn.setEnabled(False)
         self.desc_tags_display.setPlainText(
             "⏳ Generating tags... (this may take a while)\n\n"
             f"Mode: {selected_creativity.capitalize()}\n"
-            "⚠️ TIP: Enable GPU in Ollama for faster generation!"
+            f"{tip}"
         )
         self.statusbar.showMessage(
             f"Connecting to Ollama and generating tags in {selected_creativity} mode..."
         )
 
-        self._tag_worker = DescriptionTagWorker(description, selected_model, selected_creativity)
+        threshold = self.post_count_threshold.value()
+        self._tag_worker = DescriptionTagWorker(
+            description, selected_model, selected_creativity, threshold,
+        )
         self._tag_worker.finished.connect(self._on_tags_generated)
         self._tag_worker.error.connect(self._on_tag_generation_error)
         self._tag_worker.start()
@@ -1763,7 +1853,12 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         if len(result.tags) == 0:
             display_text = (
                 "⚠️ No output generated\n\n"
-                "Try refining your description with more visual details."
+                "The AI couldn't produce tags from this description. Try:\n"
+                "  1. Adding a clear subject (who is in the scene?)\n"
+                "  2. Adding an action (what are they doing?)\n"
+                "  3. Adding a setting (where does this happen?)\n"
+                "  4. Re-running — temperature variance may help\n\n"
+                "Example: instead of \"a witch\" try \"a witch flying through a dark storm\""
             )
             self._copy_tags_btn.setEnabled(False)
         else:
@@ -1775,8 +1870,9 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
 
         self.desc_tags_display.setPlainText(display_text)
         self.statusbar.showMessage(
-            f"✓ Generated {len(result.tags)} prompt terms in {self._last_creativity_mode} mode.",
-            5000,
+            f"✓ Generated {len(result.tags)} prompt terms in {self._last_creativity_mode} mode. "
+            "Not satisfied? Re-run for alternative results.",
+            8000,
         )
         self.generate_from_desc_btn.setEnabled(True)
         self._tag_worker = None
@@ -1955,8 +2051,8 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         sorted_tags = sorted(counter.items(), key=lambda x: (-x[1], x[0]))
 
         dlg = QtWidgets.QDialog(self)
-        dlg.setWindowTitle("📊 Tag Frequency Dashboard")
-        dlg.resize(520, 500)
+        dlg.setWindowTitle("📊 Tag Frequency")
+        dlg.resize(500, 500)
         dlg.setModal(True)
         dlg.setStyleSheet(self.styleSheet())
 
@@ -1964,8 +2060,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         layout.setSpacing(10)
 
         header = QtWidgets.QLabel(
-            f"Tags across {len(self.results)} image(s) — "
-            f"{len(sorted_tags)} unique tags, "
+            f"{len(self.results)} image(s), {len(sorted_tags)} unique tags, "
             f"{sum(counter.values())} total occurrences"
         )
         header.setStyleSheet("color: #4da6ff; font-weight: bold; font-size: 11px;")
@@ -1979,7 +2074,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         table.setColumnWidth(0, 260)
         table.setColumnWidth(1, 70)
-        total_images = max(1, len(self.results))
+        total = max(1, len(self.results))
 
         for row, (tag, count) in enumerate(sorted_tags):
             tag_item = QtWidgets.QTableWidgetItem(tag)
@@ -1990,7 +2085,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
             count_item.setTextAlignment(QtCore.Qt.AlignCenter)
             table.setItem(row, 1, count_item)
 
-            pct = f"{count / total_images * 100:.0f}%"
+            pct = f"{count / total * 100:.0f}%"
             pct_item = QtWidgets.QTableWidgetItem(pct)
             pct_item.setTextAlignment(QtCore.Qt.AlignCenter)
             table.setItem(row, 2, pct_item)
@@ -2012,7 +2107,9 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         dlg.exec()
 
     def _copy_freq_to_clipboard(
-        self, sorted_tags: list[tuple[str, int]], counter: dict[str, int]
+        self,
+        sorted_tags: list[tuple[str, int]],
+        counter: dict[str, int],
     ) -> None:
         """Copy the frequency table as CSV to clipboard."""
         lines = ["tag,count,coverage_pct"]
@@ -2076,15 +2173,170 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         self.statusbar.showMessage(f"Saved zip to {path}")
 
 
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
+    # ==================================================================
+    # Paste URLs from clipboard (batch import)
+    # ==================================================================
+    # Model management dialog (pull / list / delete)
+    # ==================================================================
+
+    def _show_model_manager(self) -> None:
+        """Open a dialog to pull, list or delete Ollama models."""
+
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle("⚙️ Model Manager — Ollama")
+        dlg.resize(600, 480)
+        dlg.setModal(True)
+        dlg.setStyleSheet(self.styleSheet())
+
+        layout = QtWidgets.QVBoxLayout(dlg)
+        layout.setSpacing(10)
+
+        # --- Pull section ---
+        pull_group = QtWidgets.QGroupBox("⬇ Pull New Model")
+        pull_layout = QtWidgets.QHBoxLayout(pull_group)
+        pull_input = QtWidgets.QLineEdit()
+        pull_input.setPlaceholderText("e.g. qwen2:7b, llama3.1:8b, gemma2:9b")
+        pull_input.setStyleSheet(
+            "background-color: #0d0d0d; color: #ffffff; padding: 6px; "
+            "border: 1px solid #444; border-radius: 4px;"
+        )
+        pull_layout.addWidget(pull_input, 1)
+
+        # Progress bar shared by pull and delete operations
+        progress_bar = QtWidgets.QProgressBar()
+        progress_bar.setRange(0, 0)  # indeterminate
+        progress_bar.setTextVisible(False)
+        progress_bar.setFixedHeight(6)
+        progress_bar.setStyleSheet(
+            "QProgressBar { background-color: #1a1a1a; border: 1px solid #444; border-radius: 3px; }"
+            "QProgressBar::chunk { background-color: #4da6ff; border-radius: 2px; }"
+        )
+        progress_bar.hide()
+
+        self._model_worker: ModelOperationWorker | None = None
+
+        def _on_worker_finished(success: bool, message: str) -> None:
+            progress_bar.hide()
+            pull_btn.setEnabled(True)
+            pull_btn.setText("⬇ Pull")
+            delete_btn.setEnabled(True)
+            delete_btn.setText("🗑 Delete Selected")
+            if success:
+                QtWidgets.QMessageBox.information(dlg, "Success", message)
+                status_label.setText(message)
+            else:
+                QtWidgets.QMessageBox.warning(dlg, "Operation Failed", message)
+                status_label.setText(f"Error: {message}")
+            _refresh_list()
+
+        def _on_pull() -> None:
+            model_name = pull_input.text().strip()
+            if not model_name:
+                return
+            pull_btn.setEnabled(False)
+            pull_btn.setText("⏳ Pulling…")
+            delete_btn.setEnabled(False)
+            progress_bar.show()
+            status_label.setText(f"Pulling {model_name} — this may take several minutes…")
+            self._model_worker = ModelOperationWorker("pull", model_name)
+            self._model_worker.finished.connect(_on_worker_finished)
+            self._model_worker.start()
+
+        pull_btn = QtWidgets.QPushButton("⬇ Pull")
+        pull_btn.clicked.connect(_on_pull)
+        pull_layout.addWidget(pull_btn)
+        layout.addWidget(pull_group)
+
+        # --- Installed models ---
+        list_group = QtWidgets.QGroupBox("📦 Installed Models")
+        list_layout = QtWidgets.QVBoxLayout(list_group)
+
+        model_list = QtWidgets.QListWidget()
+        model_list.setStyleSheet(
+            "background-color: #0d0d0d; color: #e0e0e0; border: 1px solid #444; "
+            "border-radius: 5px; padding: 5px;"
+        )
+        list_layout.addWidget(model_list, 1)
+
+        status_label = QtWidgets.QLabel("")
+        status_label.setStyleSheet("color: #9ecbff; font-size: 10px;")
+        list_layout.addWidget(status_label)
+
+        list_layout.addWidget(progress_bar)
+
+        list_btn_row = QtWidgets.QHBoxLayout()
+        list_btn_row.setSpacing(4)
+
+        def _refresh_list() -> None:
+            model_list.clear()
+            try:
+                tagger = get_description_tagger()
+                if not tagger.check_connection():
+                    status_label.setText("⚠ Ollama not running. Start it with 'ollama serve'.")
+                    return
+                models = tagger.list_available_models()
+                for m in models:
+                    model_list.addItem(m)
+                status_label.setText(f"{len(models)} model(s) installed.")
+            except Exception as e:
+                status_label.setText(f"Error: {e}")
+
+        refresh_list_btn = QtWidgets.QPushButton("🔄 Refresh")
+        refresh_list_btn.clicked.connect(_refresh_list)
+        list_btn_row.addWidget(refresh_list_btn)
+
+        def _on_delete() -> None:
+            current = model_list.currentItem()
+            if current is None:
+                return
+            model_name = current.text().strip()
+            reply = QtWidgets.QMessageBox.question(
+                dlg,
+                "Confirm Delete",
+                f"Delete model '{model_name}'?\n\n"
+                "This frees disk space. You can re-pull it later.",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                QtWidgets.QMessageBox.No,
+            )
+            if reply != QtWidgets.QMessageBox.Yes:
+                return
+            delete_btn.setEnabled(False)
+            delete_btn.setText("⏳ Deleting…")
+            pull_btn.setEnabled(False)
+            progress_bar.show()
+            status_label.setText(f"Deleting {model_name}…")
+            self._model_worker = ModelOperationWorker("delete", model_name)
+            self._model_worker.finished.connect(_on_worker_finished)
+            self._model_worker.start()
+
+        delete_btn = QtWidgets.QPushButton("🗑 Delete Selected")
+        delete_btn.setStyleSheet(
+            "QPushButton { background-color: #5c1a1a; color: #ffaaaa; "
+            "border: 1px solid #9a3a3a; }"
+            "QPushButton:hover { background-color: #702828; border: 1px solid #cc4444; }"
+        )
+        delete_btn.clicked.connect(_on_delete)
+        list_btn_row.addWidget(delete_btn)
+        list_btn_row.addStretch(1)
+        list_layout.addLayout(list_btn_row)
+        layout.addWidget(list_group)
+
+        close_btn = QtWidgets.QPushButton("Close")
+        close_btn.clicked.connect(dlg.accept)
+        layout.addWidget(close_btn)
+
+        _refresh_list()
+        dlg.exec()
+
+    # ==================================================================
+    # Entry point
+    # ==================================================================
 
 def main() -> None:
     app = QtWidgets.QApplication([])
     app.setApplicationName("Img-Tagboru")
     app.setApplicationDisplayName("Img-Tagboru")
-    app.setApplicationVersion("1.2")
+    app.setApplicationVersion("1.3.1")
 
     window = MainWindow()
     window.show()
