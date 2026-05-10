@@ -258,6 +258,21 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         self.whitelist.setFixedHeight(52)
         self.whitelist.setToolTip("Only include these tags if specified (comma-separated)")
 
+        self.caption_prefix = QtWidgets.QPlainTextEdit()
+        self.caption_prefix.setPlaceholderText("e.g. masterpiece, best_quality")
+        self.caption_prefix.setFixedHeight(40)
+        self.caption_prefix.setToolTip("Text prepended before every caption (e.g. quality tags)")
+
+        self.caption_postfix = QtWidgets.QPlainTextEdit()
+        self.caption_postfix.setPlaceholderText("e.g. from_above, dutch_angle")
+        self.caption_postfix.setFixedHeight(40)
+        self.caption_postfix.setToolTip("Text appended after every caption (e.g. camera/view tags)")
+
+        self.initial_caption = QtWidgets.QPlainTextEdit()
+        self.initial_caption.setPlaceholderText("e.g. 1girl, solo")
+        self.initial_caption.setFixedHeight(40)
+        self.initial_caption.setToolTip("Base caption used when no tags are generated (trigger words)")
+
         form.addRow(QtWidgets.QLabel("General threshold:"), self.general_threshold)
         form.addRow(QtWidgets.QLabel("Character threshold:"), self.character_threshold)
         form.addRow(QtWidgets.QLabel("Max tags:"), self.max_tags)
@@ -265,6 +280,9 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         form.addRow(QtWidgets.QLabel("Categories:"), category_widget)
         form.addRow(QtWidgets.QLabel("Blacklist:"), self.blacklist)
         form.addRow(QtWidgets.QLabel("Whitelist:"), self.whitelist)
+        form.addRow(QtWidgets.QLabel("Caption Prefix:"), self.caption_prefix)
+        form.addRow(QtWidgets.QLabel("Caption Postfix:"), self.caption_postfix)
+        form.addRow(QtWidgets.QLabel("Initial Caption:"), self.initial_caption)
         form.addRow(self.normalize_pixels)
         form.addRow(self.use_mcut)
         form.addRow(self.include_scores)
@@ -280,6 +298,9 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
             "Uncheck 'Include' to exclude tags from caption\nEdit 'Rank' to change tag order"
         )
         self.table.itemChanged.connect(self.on_table_changed)
+        self.caption_prefix.textChanged.connect(self._update_affix_preview)
+        self.caption_postfix.textChanged.connect(self._update_affix_preview)
+        self.initial_caption.textChanged.connect(self._update_affix_preview)
         self.table.setColumnWidth(0, 70)
         self.table.setColumnWidth(2, 350)
         self.table.setColumnWidth(4, 90)
@@ -297,6 +318,12 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
             "Ctrl+Z / Ctrl+Y to undo/redo changes."
         )
         caption_layout.addWidget(self.caption_edit)
+
+        self.affix_preview_label = QtWidgets.QLabel()
+        self.affix_preview_label.setStyleSheet("color: #9ecbff; font-size: 10px; padding: 2px 4px;")
+        self.affix_preview_label.setWordWrap(True)
+        self.affix_preview_label.setVisible(False)
+        caption_layout.addWidget(self.affix_preview_label)
 
         self.apply_caption_btn = QtWidgets.QPushButton("🔄 Apply Caption")
         self.apply_caption_btn.setToolTip("Update table from edited caption text")
@@ -1487,6 +1514,43 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         result.frame = self._table_to_frame()
         result.caption = self.caption_edit.toPlainText().strip()
 
+    def _effective_caption(self, caption: str | None = None) -> str:
+        """Return caption with prefix and postfix applied (or initial caption if empty)."""
+        prefix = self.caption_prefix.toPlainText().strip()
+        postfix = self.caption_postfix.toPlainText().strip()
+        initial = self.initial_caption.toPlainText().strip()
+
+        if caption is None:
+            result = self._current_result()
+            caption = result.caption if result else ""
+
+        base = caption.strip()
+        if not base:
+            base = initial
+
+        parts = [p for p in (prefix, base, postfix) if p]
+        return ", ".join(parts)
+
+    def _update_affix_preview(self) -> None:
+        """Refresh the affix preview label below the caption editor."""
+        prefix = self.caption_prefix.toPlainText().strip()
+        postfix = self.caption_postfix.toPlainText().strip()
+        initial = self.initial_caption.toPlainText().strip()
+
+        parts: list[str] = []
+        if prefix:
+            parts.append(f"<b>Prefix:</b> <span style='color:#66ff66'>{prefix}</span>")
+        if postfix:
+            parts.append(f"<b>Postfix:</b> <span style='color:#ff9966'>{postfix}</span>")
+        if initial:
+            parts.append(f"<b>Initial:</b> <span style='color:#66ccff'>{initial}</span>")
+
+        if parts:
+            self.affix_preview_label.setText("→ " + " &nbsp;|&nbsp; ".join(parts))
+            self.affix_preview_label.setVisible(True)
+        else:
+            self.affix_preview_label.setVisible(False)
+
     def show_result(self, index: int) -> None:
         if not (0 <= index < len(self.results)):
             if index in self._single_results:
@@ -1505,6 +1569,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
                 self.caption_edit.blockSignals(True)
                 self.caption_edit.setPlainText(result.caption)
                 self.caption_edit.blockSignals(False)
+                self._update_affix_preview()
                 return
             if 0 <= index < len(self.pending_paths):
                 self._active_result_index = -1
@@ -1518,6 +1583,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
                 self.caption_edit.blockSignals(True)
                 self.caption_edit.setPlainText("")
                 self.caption_edit.blockSignals(False)
+                self.affix_preview_label.setVisible(False)
             return
 
         if 0 <= self._active_result_index < len(self.results) and self.table.rowCount() > 0:
@@ -1532,6 +1598,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         self.caption_edit.blockSignals(True)
         self.caption_edit.setPlainText(result.caption)
         self.caption_edit.blockSignals(False)
+        self._update_affix_preview()
 
     def _set_image(self, pil: Image.Image) -> None:
         self._preview_image = pil
@@ -2061,11 +2128,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
 
     def _copy_as_prompt(self) -> None:
         """Copy the current caption as a ComfyUI-ready prompt (underscores->spaces)."""
-        text = self.caption_edit.toPlainText().strip()
-        if not text:
-            result = self._current_result()
-            if result is not None:
-                text = result.caption
+        text = self._effective_caption()
         if not text:
             self.statusbar.showMessage("No caption to copy.", 3000)
             return
@@ -2209,7 +2272,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         )
         if not path:
             return
-        Path(path).write_text(result.caption, encoding="utf-8")
+        Path(path).write_text(self._effective_caption(result.caption), encoding="utf-8")
         self.statusbar.showMessage(f"Saved caption to {path}")
 
     def export_beside_source(self) -> None:
@@ -2223,7 +2286,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
                 continue
             txt_path = r.path.with_suffix(".txt")
             try:
-                txt_path.write_text(r.caption, encoding="utf-8")
+                txt_path.write_text(self._effective_caption(r.caption), encoding="utf-8")
                 saved += 1
             except OSError as e:
                 self.statusbar.showMessage(f"Error saving {txt_path.name}: {e}", 5000)
@@ -2242,7 +2305,10 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         )
         if not path:
             return
-        Path(path).write_bytes(export_zip_from_results(self.results))
+        # Build ZIP using effective captions (prefix/postfix/initial applied)
+        pairs = [(r.caption_filename, self._effective_caption(r.caption)) for r in self.results]
+        from backend.tag_utils import export_zip
+        Path(path).write_bytes(export_zip(pairs))
         self.statusbar.showMessage(f"Saved zip to {path}")
 
 
