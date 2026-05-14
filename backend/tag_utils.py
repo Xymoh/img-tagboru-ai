@@ -23,7 +23,7 @@ TAG_COLUMNS = ["include", "rank", "tag", "confidence", "category"]
 
 @dataclass
 class TaggingResult:
-    """Unified result item used by both the desktop and Streamlit frontends."""
+    """Unified result item used by the desktop frontend."""
 
     name: str  # display filename
     path: Path | None  # filesystem path (None for in-memory uploads)
@@ -149,7 +149,7 @@ def frame_to_caption(frame: pd.DataFrame, include_scores: bool = False) -> str:
 
 
 def caption_from_frame(frame: pd.DataFrame, include_scores: bool = False) -> str:
-    """Alias for :func:`frame_to_caption` — kept for Streamlit compatibility."""
+    """Alias for :func:`frame_to_caption`."""
     return frame_to_caption(frame, include_scores=include_scores)
 
 

@@ -36,8 +36,6 @@ pip install onnxruntime-gpu
 | `frontend/native/workers.py` | QThread workers for description tagging and image loading |
 | `frontend/native/styles.py` | Dark-theme Qt stylesheet, SVG icon generation |
 | `frontend/native/widgets.py` | `CheckboxDelegate` and `HelpDialog` |
-| `frontend/app.py` | Streamlit web frontend |
-| `launcher.py` | Entry point that starts FastAPI + Streamlit |
 | `build_exe.ps1` | PyInstaller packaging script |
 | `.github/workflows/windows-build.yml` | CI/CD: builds `.exe` and publishes GitHub Release asset |
 | `danbooru_tags_post_count.csv` | 1M+ Danbooru tag vocabulary for autocomplete |
@@ -49,9 +47,9 @@ Desktop (PySide6):
 python frontend/native/main_window.py
 ```
 
-Web (Streamlit):
+Desktop (PySide6):
 ```powershell
-python launcher.py
+python frontend/native/main_window.py
 ```
 
 API only:
@@ -70,7 +68,7 @@ python -m uvicorn backend.api:app --host 127.0.0.1 --port 8000 --reload
 - Type hints on all function signatures.
 - GUI code uses PySide6 (Qt for Python).
 - Workers for long-running tasks inherit `QtCore.QThread` and communicate via signals.
-- Shared logic lives in `backend/` so both desktop and Streamlit frontends can use it.
+- Shared logic lives in `backend/` so it can be reused by any future frontend.
 
 ## Branching & Release Workflow
 

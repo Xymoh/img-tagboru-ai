@@ -321,6 +321,58 @@ _FEWSHOT_EXAMPLES: dict[str, list[tuple[str, str]]] = {
 
 
 # ---------------------------------------------------------------------------
+# Few-shot examples for TAG ENRICHMENT
+#   Input: a list of seed tags (already-validated Danbooru tags)
+#   Output: additional complementary tags that fit the implied scene.
+# ---------------------------------------------------------------------------
+
+_ENRICH_FEWSHOT_EXAMPLES: dict[str, list[tuple[str, str]]] = {
+    "safe": [
+        (
+            "1girl, beach, volleyball",
+            "swimsuit, bikini, sand, ocean, sky, cloud, smile, outdoors, day, sunlight, ponytail, ball, jumping, sweat, tan, athletic, blue_sky, horizon, wave, towel",
+        ),
+        (
+            "1girl, witch_hat, forest",
+            "witch, robe, broom, magic, tree, outdoors, night, moonlight, glowing, long_hair, cape, staff, fog, mystical, leaves, owl, lantern, path, dark, stars",
+        ),
+        (
+            "1girl, maid, kitchen",
+            "maid_headdress, apron, frills, indoors, cooking, day, smile, long_hair, counter, stove, plate, food, window, sunlight, wooden_floor, steam, pot, spoon, cheerful, ribbon",
+        ),
+    ],
+    "creative": [
+        (
+            "1girl, beach, volleyball",
+            "swimsuit, bikini, sand, ocean, sky, cloud, smile, outdoors, day, sunlight, ponytail, motion_blur, wet_hair, sunset, beach_towel, jumping, sweat, tan, athletic, splash, wave, horizon, depth_of_field, lens_flare",
+        ),
+        (
+            "1girl, witch_hat, forest",
+            "witch, robe, broom, magic, tree, outdoors, night, moonlight, glowing, fog, mystical, depth_of_field, floating_hair, cape, staff, lantern, fireflies, dark, wind, leaves, stars, silhouette",
+        ),
+        (
+            "1girl, 1boy, bedroom",
+            "bed, indoors, night, lamp, window, blush, looking_at_viewer, intimate, dim_lighting, kissing, curtains, moonlight, pillow, blanket, embrace, closed_eyes, long_hair, bare_shoulders, romantic, warm_lighting",
+        ),
+    ],
+    "mature": [
+        (
+            "1girl, 1boy, bedroom",
+            "bed, indoors, night, nude, breasts, nipples, sex, penetration, blush, open_mouth, moaning, dim_lighting, sweat, spread_legs, missionary, pillow, on_back, eye_contact, panting, saliva, messy_hair, intimate",
+        ),
+        (
+            "1girl, 1boy, fellatio, nun",
+            "veil, cross, habit, kneeling, open_mouth, penis, saliva, tongue_out, blush, tears, eye_contact, indoors, cathedral, stained_glass, night, robe, deepthroat, drooling, hands_on_head, submissive, dim_lighting, candlelight",
+        ),
+        (
+            "1girl, maid, library",
+            "maid_headdress, apron, indoors, bookshelf, book, blush, cleavage, large_breasts, bent_over, skirt_lift, showing_panties, dim_lighting, thighhighs, garter_belt, looking_back, naughty_face, sweat, ass, frills, lace",
+        ),
+    ],
+}
+
+
+# ---------------------------------------------------------------------------
 # DescriptionTagResult
 # ---------------------------------------------------------------------------
 
@@ -861,13 +913,15 @@ Now output ONLY the comma-separated tags for the user's description."""
 
     def _post_process_tags(self, tags: list[str], creativity: str, target_count: int,
                            description: str = "",
-                           injected_tags: set[str] | None = None) -> list[str]:
-        """Seven-step post-processing pipeline.
+                           injected_tags: set[str] | None = None,
+                           skip_relevance_gate: bool = False) -> list[str]:
+        """Post-processing pipeline.
 
         1. Validate against CSV whitelist (already done by _parse_tags)
         2. Filter by post_count threshold
         3. Block sensitive tags unless explicitly mentioned in description
         4. **Relevance gate** — drop tags with no support in the description
+           (skipped when *skip_relevance_gate* is True, e.g. for enrichment)
         5. Semantic deduplication
         6. **Pose/viewpoint conflict resolution**
         7. Sort by post_count descending
@@ -884,8 +938,9 @@ Now output ONLY the comma-separated tags for the user's description."""
             tags = [t for t in tags if t not in self._SENSITIVE_TAGS
                     or any(kw in desc_lower for kw in (t, t.replace("_", " ")))]
 
-        # Step 4: Relevance gate — score each tag and drop score-0 unless injected
-        if description:
+        # Step 4: Relevance gate — score each tag and drop score-0 unless injected.
+        # Skipped for enrichment mode where the whole point is adding new things.
+        if description and not skip_relevance_gate:
             desc_keywords = set(self._extract_keywords(description))
             expanded: set[str] = set()
             for kw in desc_keywords:
@@ -1344,6 +1399,243 @@ Now output ONLY the comma-separated tags for the user's description."""
         return DescriptionTagResult(
             tags=final_tags[:target_tags],
             raw_response=raw_text_final,
+            model=self.model,
+        )
+
+    # ------------------------------------------------------------------
+    # Tag enrichment (seed tags → expanded tag list)
+    # ------------------------------------------------------------------
+
+    def _parse_seed_tags(self, raw: str | list[str]) -> list[str]:
+        """Normalize seed-tag input and validate against the CSV vocabulary.
+
+        Accepts either a raw comma/newline-separated string or a pre-split
+        list. Returns only tags that exist in the Danbooru index, preserving
+        the user's order. Unknown tags are silently dropped.
+        """
+        if isinstance(raw, str):
+            chunks = re.split(r"[\n,]+", raw)
+        else:
+            chunks = list(raw)
+
+        seen: set[str] = set()
+        valid: list[str] = []
+        for chunk in chunks:
+            if not isinstance(chunk, str):
+                continue
+            tag = chunk.strip().lower().replace(" ", "_").strip(".")
+            if not tag or tag in seen:
+                continue
+            if not self.tag_index.is_valid(tag):
+                continue
+            seen.add(tag)
+            valid.append(tag)
+        return valid
+
+    def _build_enrichment_system_prompt(
+        self, creativity: str, seed_tags: list[str]
+    ) -> str:
+        """Build a vocabulary-grounded system prompt for enrichment mode.
+
+        The seeds are treated as the user description for vocabulary lookup —
+        the relevant-tags section surfaces tags matching seed tokens.
+        """
+        if creativity not in self._VALID_CREATIVITIES:
+            creativity = self.DEFAULT_CREATIVITY
+
+        pseudo_desc = ", ".join(seed_tags)
+        vocab = self._build_vocabulary_section(
+            creativity, pseudo_desc, exclude=set(seed_tags)
+        )
+        mode_rules = self._MODE_EXTRA_RULES.get(creativity, "")
+
+        return f"""You are a Danbooru-style tag enricher. The user gives you a list of seed
+tags describing a scene. Your job is to ADD more tags that plausibly belong
+in the same scene — things like clothing, atmosphere, lighting, expressions,
+body language, objects, and style cues.
+
+CRITICAL RULES:
+- Output ONLY the NEW tags (comma-separated). Do NOT repeat any seed tag.
+- Do NOT write <think> or reasoning blocks. Output tags immediately.
+- Use lowercase with underscores for spaces (Danbooru format).
+- Only add tags that are plausible given the seeds. Do NOT invent new characters,
+  franchises, or contradict the existing tags.
+- Prefer common tags from the vocabulary below.
+- Output 15-30 additional tags.
+{mode_rules}
+
+AVAILABLE VOCABULARY (most common Danbooru tags — prefer these):
+{vocab}
+
+OUTPUT FORMAT (example):
+swimsuit, bikini, sand, ocean, sky, smile, sunlight
+
+Now output ONLY the comma-separated ADDITIONAL tags that complement the user's seeds."""
+
+    def _build_enrichment_generation_prompt(
+        self, seed_tags: list[str], creativity: str
+    ) -> str:
+        """Build the user message for enrichment with few-shot examples."""
+        examples = _ENRICH_FEWSHOT_EXAMPLES.get(
+            creativity, _ENRICH_FEWSHOT_EXAMPLES["creative"]
+        )
+        seed_str = ", ".join(seed_tags)
+        digest = hashlib.md5(seed_str.lower().encode("utf-8")).hexdigest()
+        idx = int(digest[:8], 16) % max(1, len(examples) - 2)
+        selected = examples[idx : idx + 3] if len(examples) > 3 else examples
+
+        parts: list[str] = []
+        for seeds, out in selected:
+            parts.append(f'Seeds: {seeds}\nAdd: {out}')
+        parts.append(f'Seeds: {seed_str}\nAdd:')
+        return "\n\n".join(parts)
+
+    def enrich_tags(
+        self,
+        seed_tags: list[str] | str,
+        creativity: str = DEFAULT_CREATIVITY,
+    ) -> DescriptionTagResult:
+        """Expand a list of seed tags with complementary tags from the LLM.
+
+        The seeds are preserved in the output (always marked as injected/must-keep).
+        The LLM generates additional tags which pass through the same
+        post-processing pipeline as description-based generation.
+        """
+        creativity = (creativity or self.DEFAULT_CREATIVITY).strip().lower()
+        if creativity not in self._VALID_CREATIVITIES:
+            creativity = self.DEFAULT_CREATIVITY
+
+        seeds = self._parse_seed_tags(seed_tags)
+        if not seeds:
+            raise ValueError(
+                "No valid seed tags provided. Enter at least one Danbooru tag."
+            )
+
+        if not self.check_connection():
+            raise RuntimeError(
+                f"Cannot connect to Ollama at {self.host}. "
+                "Make sure Ollama is running: ollama serve"
+            )
+
+        mode_options = {
+            "safe":     {"base_temp": 0.55, "num_predict": 400, "target_tags": 35,
+                         "top_p": 0.92, "min_new_accept": 8, "max_attempts": 3},
+            "creative": {"base_temp": 0.70, "num_predict": 600, "target_tags": 45,
+                         "top_p": 0.95, "min_new_accept": 12, "max_attempts": 3},
+            "mature":   {"base_temp": 1.05, "num_predict": 700, "target_tags": 50,
+                         "top_p": 0.98, "min_new_accept": 15, "max_attempts": 3},
+        }
+        opts = mode_options[creativity]
+        target_tags = opts["target_tags"]
+        min_new_accept = opts["min_new_accept"]
+        max_attempts = opts["max_attempts"]
+
+        # Synthesize a pseudo-description so the relevance gate + concept/act
+        # expansions fire on seed tokens.
+        pseudo_desc = " ".join(t.replace("_", " ") for t in seeds)
+
+        # qwen3 /no_think directive (same as generate_tags)
+        model_lower = self.model.lower()
+        no_think_prefix = ""
+        is_qwen3_thinking = (
+            "qwen3" in model_lower
+            and "instruct-2507" not in model_lower
+            and "instruct_2507" not in model_lower
+        )
+        if is_qwen3_thinking:
+            no_think_prefix = self._MODEL_PREFILLS.get("qwen3_no_think") or ""
+
+        best_new: list[str] = []
+        best_raw = ""
+        last_error: Exception | None = None
+        raw_text_final = ""
+
+        for attempt in range(max_attempts):
+            try:
+                system_prompt = self._build_enrichment_system_prompt(creativity, seeds)
+                gen_prompt = self._build_enrichment_generation_prompt(seeds, creativity)
+                if no_think_prefix:
+                    gen_prompt = f"{no_think_prefix}\n\n{gen_prompt}"
+
+                temp = min(1.35, opts["base_temp"] + 0.15 * attempt)
+
+                response = self.client.generate(
+                    model=self.model,
+                    prompt=gen_prompt,
+                    system=system_prompt,
+                    options={
+                        "temperature": temp,
+                        "top_p": opts["top_p"],
+                        "top_k": 50,
+                        "repeat_penalty": 1.12,
+                        "num_predict": opts["num_predict"],
+                        "stop": ["</think>", "\n\n\n", "\nSeeds:", "Seeds:", "<think>"],
+                    },
+                    stream=False,
+                )
+                raw_text = response.get("response", "").strip()
+                raw_text_final = raw_text
+
+                parsed = self._parse_tags(raw_text)
+                seeds_set = set(seeds)
+                new_only = [t for t in parsed if t not in seeds_set]
+
+                combined = list(seeds) + new_only
+                final_tags = self._post_process_tags(
+                    combined, creativity, target_tags, pseudo_desc,
+                    injected_tags=seeds_set,
+                    skip_relevance_gate=True,
+                )
+                produced_new = [t for t in final_tags if t not in seeds_set]
+
+                if len(produced_new) > len(best_new):
+                    best_new = produced_new
+                    best_raw = raw_text_final
+
+                if len(produced_new) >= min_new_accept:
+                    return DescriptionTagResult(
+                        tags=final_tags[:target_tags],
+                        raw_response=raw_text_final,
+                        model=self.model,
+                    )
+
+            except Exception as e:
+                last_error = e
+                if "connect" in str(e).lower() or "refused" in str(e).lower():
+                    raise RuntimeError(f"Tag enrichment failed: {e}")
+
+        if last_error is not None and not best_new:
+            raise RuntimeError(f"Tag enrichment failed after retries: {last_error}")
+
+        combined = list(seeds) + best_new
+        final_tags = self._post_process_tags(
+            combined, creativity, target_tags, pseudo_desc,
+            injected_tags=set(seeds),
+            skip_relevance_gate=True,
+        )
+
+        # Rescue path — if nothing new survived, fall back to concept/act
+        # expansions for any archetype tokens present in the seeds.
+        if not [t for t in final_tags if t not in set(seeds)]:
+            rescue = list(seeds)
+            for seed in seeds:
+                for token in seed.split("_"):
+                    for tag in _CONCEPT_EXPANSIONS.get(token, []):
+                        if self.tag_index.is_valid(tag) and tag not in rescue:
+                            rescue.append(tag)
+                    if creativity != "safe":
+                        for tag in _ACT_EXPANSIONS.get(token, []):
+                            if self.tag_index.is_valid(tag) and tag not in rescue:
+                                rescue.append(tag)
+            final_tags = self._post_process_tags(
+                rescue, creativity, target_tags, pseudo_desc,
+                injected_tags=set(rescue),
+                skip_relevance_gate=True,
+            )
+
+        return DescriptionTagResult(
+            tags=final_tags[:target_tags],
+            raw_response=best_raw or raw_text_final,
             model=self.model,
         )
 

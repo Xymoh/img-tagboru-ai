@@ -52,16 +52,17 @@ The Description Tagger applies a deterministic post-processing pipeline (relevan
 ## Recommended stack
 
 - Backend: Python + FastAPI + ONNX Runtime.
-- Frontend: PySide6.
+- Frontend: PySide6 desktop app.
 - Model: `SmilingWolf/wd-swinv2-tagger-v3` from Hugging Face.
 
-This repo includes a standalone desktop app that keeps the inference logic in a shared local service module. The FastAPI backend is available as an optional local API if you want to integrate another UI later.
+This repo is a standalone desktop application. The FastAPI backend (`backend/api.py`) is also available as an optional local API if you want to integrate a custom UI.
 
 ## Project layout
 
-- `backend/` - tagger service and optional local API.
-- `frontend/` - PySide6 editor, preview, and export UI.
-- `requirements.txt` - Python dependencies.
+- `backend/` — tagger service, description tagger (LLM), tag index, and optional FastAPI.
+- `frontend/native/` — PySide6 desktop app (main entry point: `main_window.py`).
+- `scripts/` — batch test utilities.
+- `requirements.txt` — Python dependencies.
 
 ## Setup on Windows
 
