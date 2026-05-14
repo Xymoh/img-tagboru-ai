@@ -1,3 +1,3 @@
 @echo off
 cd /d "%~dp0"
-start "" pythonw run.py
+start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0run.py"
