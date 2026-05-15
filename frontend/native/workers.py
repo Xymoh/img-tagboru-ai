@@ -64,7 +64,8 @@ class DescriptionTagWorker(QtCore.QThread):
                 result = tagger.generate_tags(self.description, creativity=self.creativity)
             self.finished.emit(result)
         except Exception as e:
-            self.error.emit(str(e))
+            import traceback
+            self.error.emit(f"{e}\n\n{traceback.format_exc()}")
 
 
 class ImageLoadWorker(QtCore.QThread):

@@ -114,6 +114,7 @@ _TAG_TO_CONFLICT_GROUP: dict[str, int] = {
 # ---------------------------------------------------------------------------
 
 _CONCEPT_EXPANSIONS: dict[str, list[str]] = {
+    # Archetypes / characters
     "nun":        ["veil", "cross", "habit", "rosary", "robe", "praying"],
     "priest":     ["cross", "robe", "rosary", "cassock", "1boy"],
     "witch":      ["witch_hat", "broom", "robe", "magic", "pointy_hat", "cauldron"],
@@ -143,18 +144,67 @@ _CONCEPT_EXPANSIONS: dict[str, list[str]] = {
     "sailor":     ["sailor_collar", "sailor_hat", "serafuku"],
     "bride":      ["wedding_dress", "veil", "bouquet", "white_dress"],
     "schoolgirl": ["school_uniform", "serafuku", "skirt", "pleated_skirt"],
-    # Settings
+    # Subcultures / aesthetic
+    "emo":        ["pale_skin", "black_hair", "eyeliner", "goth", "dark_clothes",
+                   "studded_belt", "choker", "messy_hair", "ear_piercing"],
+    "goth":       ["pale_skin", "black_hair", "eyeliner", "black_clothes",
+                   "choker", "lace", "lipstick", "ear_piercing"],
+    "punk":       ["studded_belt", "leather_jacket", "ear_piercing", "messy_hair",
+                   "ripped_clothes", "spiked_hair"],
+    "couple":     ["1girl", "1boy", "duo", "looking_at_another", "intimate"],
+    "lovers":     ["1girl", "1boy", "duo", "looking_at_another", "intimate",
+                   "blush", "holding_hands"],
+    "romantic":   ["looking_at_another", "intimate", "blush", "warm_lighting",
+                   "soft_lighting"],
+    # Settings — interior
     "kitchen":    ["kitchen", "counter", "apron", "cooking", "stove"],
     "baking":     ["baking", "cooking", "apron", "kitchen", "food", "flour"],
+    "bedroom":    ["bedroom", "bed", "indoors", "window", "lamp", "pillow"],
+    "bathroom":   ["bathroom", "bathtub", "shower", "indoors", "tile", "wet"],
+    "classroom":  ["classroom", "school_uniform", "indoors", "desk", "chalkboard"],
+    "office":     ["office", "indoors", "desk", "computer", "suit"],
+    "library":    ["library", "bookshelf", "book", "indoors"],
+    "gym":        ["gym", "indoors", "sportswear", "sweat", "athletic"],
+    "cathedral":  ["church", "cathedral", "stained_glass", "cross", "indoors"],
+    # Settings — outdoor / nature
     "park":       ["park", "bench", "tree", "outdoors", "grass"],
-    "beach":      ["beach", "ocean", "sand", "swimsuit", "sky"],
-    "bedroom":    ["bedroom", "bed", "indoors", "window"],
-    "forest":     ["forest", "tree", "outdoors", "grass", "leaves"],
+    "beach":      ["beach", "ocean", "sand", "swimsuit", "sky", "horizon",
+                   "wave", "cloud", "sunlight", "outdoors"],
+    "lake":       ["lake", "water", "outdoors", "ripples", "reflection",
+                   "tree", "shore", "sky", "cloud", "calm_water"],
+    "river":      ["river", "water", "outdoors", "rocks", "current", "tree",
+                   "sky", "reflection"],
+    "ocean":      ["ocean", "water", "wave", "sky", "horizon", "outdoors", "cloud"],
+    "sea":        ["ocean", "water", "wave", "sky", "horizon", "outdoors"],
+    "mountain":   ["mountain", "outdoors", "sky", "cloud", "snow", "rocks"],
+    "field":      ["field", "grass", "outdoors", "sky", "wind", "flower"],
+    "meadow":     ["field", "grass", "flower", "outdoors", "sky", "sunlight"],
+    "forest":     ["forest", "tree", "outdoors", "grass", "leaves", "foliage",
+                   "dappled_light", "sunlight", "shadow", "fog", "mist",
+                   "forest_background", "nature", "path", "moss"],
+    "garden":     ["garden", "flower", "tree", "outdoors", "grass", "petals"],
     "alley":      ["alley", "brick_wall", "street", "outdoors", "shadow"],
+    "city":       ["cityscape", "city", "building", "street", "outdoors", "sky"],
+    "street":     ["street", "road", "outdoors", "building", "shadow"],
+    "rooftop":    ["rooftop", "outdoors", "sky", "city", "sunset"],
     "train":      ["train_interior", "train_station", "standing", "crowd"],
     "storm":      ["rain", "dark_clouds", "lightning", "wind", "sky"],
-    "cathedral":  ["church", "cathedral", "stained_glass", "cross", "indoors"],
-    "library":    ["library", "bookshelf", "book", "indoors"],
+    "rain":       ["rain", "wet", "wet_hair", "umbrella", "sky", "puddle"],
+    "snow":       ["snow", "winter", "snowing", "scarf", "breath", "sky"],
+    "sunset":     ["sunset", "orange_sky", "cloud", "outdoors", "warm_lighting"],
+    "night":      ["night", "moonlight", "stars", "dark", "shadow"],
+    "winter":     ["snow", "winter", "scarf", "coat", "breath"],
+    "summer":     ["summer", "sky", "cloud", "sunlight", "outdoors"],
+    "spring":     ["cherry_blossoms", "petals", "spring", "flower", "outdoors"],
+    "autumn":     ["autumn_leaves", "leaves", "outdoors", "warm_lighting"],
+    # Activities / wear hints
+    "swimming":   ["swimsuit", "water", "wet", "wet_hair", "swimming", "splashing"],
+    "swimsuit":   ["swimsuit", "bare_shoulders", "cleavage", "midriff", "navel",
+                   "thighs", "wet"],
+    "bikini":     ["bikini", "swimsuit", "bare_shoulders", "cleavage", "midriff",
+                   "navel", "thighs", "wet", "side-tie_bikini"],
+    "festival":   ["yukata", "festival", "fireworks", "lantern", "summer_festival"],
+    "wedding":    ["wedding_dress", "veil", "bouquet", "white_dress", "indoors"],
 }
 
 
@@ -250,19 +300,77 @@ _ACT_EXPANSIONS: dict[str, list[str]] = {
 # as "foreign" even if the description doesn't mention them.
 _UNIVERSAL_TAGS: set[str] = {
     "solo", "multiple_girls", "multiple_boys",
-    "long_hair", "short_hair", "medium_hair",
+    "long_hair", "short_hair", "medium_hair", "very_long_hair",
+    "ponytail", "twintails", "braid", "bangs", "side_ponytail",
+    "messy_hair", "wavy_hair", "straight_hair", "floating_hair", "hair_blowing",
     "blonde_hair", "brown_hair", "black_hair", "white_hair", "blue_hair",
     "red_hair", "pink_hair", "silver_hair", "grey_hair", "green_hair",
+    "purple_hair", "orange_hair", "two-tone_hair",
     "blue_eyes", "brown_eyes", "green_eyes", "red_eyes", "yellow_eyes",
     "purple_eyes", "pink_eyes", "grey_eyes", "black_eyes", "heterochromia",
-    "looking_at_viewer", "looking_away", "smile", "blush", "closed_eyes",
-    "open_mouth", "closed_mouth", "parted_lips",
+    "looking_at_viewer", "looking_away", "looking_back", "looking_to_the_side",
+    "smile", "blush", "closed_eyes", "half-closed_eyes", "frown",
+    "open_mouth", "closed_mouth", "parted_lips", "smirk", "grin",
     "highres", "absurdres", "masterpiece", "best_quality", "detailed",
-    "depth_of_field", "soft_focus", "realistic",
+    "ultra_detailed", "depth_of_field", "soft_focus", "realistic",
     "1girl", "1boy", "2girls", "2boys",
     "solo_focus", "duo",
     "indoors", "outdoors", "day", "night",
-    "sky", "cloud", "clear_sky", "simple_background",
+    "sky", "cloud", "clear_sky", "cloudy_sky", "blue_sky",
+    "simple_background", "blurry_background",
+    # Lighting / atmosphere — plausible in any scene
+    "sunlight", "moonlight", "shadow", "soft_lighting", "dim_lighting",
+    "backlighting", "lens_flare", "warm_lighting", "cool_lighting",
+    "dappled_light", "light_rays", "glowing", "sparkle", "ambient_light",
+    "sunset", "sunrise", "twilight", "dawn", "dusk", "golden_hour",
+    # Nature / environment details — plausible in any outdoor scene
+    "tree", "grass", "leaf", "leaves", "flower", "petals", "cherry_blossoms",
+    "wind", "breeze", "rain", "snow", "fog", "mist", "water", "reflection",
+    "ripples", "wave", "horizon", "shore", "sand",
+    "nature", "foliage", "branch", "path", "rocks", "stone",
+    # Skin / body details — plausible on any character
+    "fair_skin", "pale_skin", "dark_skin", "tan", "skin",
+    "thighs", "legs", "arms", "shoulders", "bare_shoulders", "collarbone",
+    "navel", "midriff", "cleavage", "small_breasts", "medium_breasts",
+    "wet", "wet_hair", "wet_clothes", "sweat",
+    # Common pose / expression additions
+    "standing", "sitting", "looking_up", "looking_down",
+    "leaning_forward", "leaning_back",
+    # Common clothing / accessory additions
+    "choker", "necklace", "earrings", "ring", "bracelet", "ribbon",
+    "jewelry", "piercing", "ear_piercing",
+    # Style / quality additions
+    "motion_blur", "bokeh", "film_grain", "chromatic_aberration",
+    "scenery", "atmospheric", "cinematic_lighting",
+}
+
+
+# ---------------------------------------------------------------------------
+# Mature "wildcard" pool — when a Mature-mode description is non-explicit,
+# the post-processor injects 1-2 of these to add a tasteful suggestive flair
+# that always makes sense regardless of scene.
+# ---------------------------------------------------------------------------
+
+_MATURE_WILDCARDS_GENERIC: list[str] = [
+    "cleavage", "bare_shoulders", "thighs", "wet", "lipstick",
+    "seductive_smile", "looking_at_viewer", "naughty_face",
+    "bedroom_eyes", "parted_lips", "blush", "soft_focus",
+]
+
+# Setting-aware wildcard pools — used when the description hints at a vibe.
+# All entries are tasteful (never explicit) and pair naturally with the cue.
+_MATURE_WILDCARDS_BY_CUE: dict[str, list[str]] = {
+    "beach":   ["bikini", "side-tie_bikini", "wet", "cleavage", "navel"],
+    "lake":    ["wet", "wet_hair", "swimsuit", "bare_shoulders", "thighs"],
+    "river":   ["wet", "wet_hair", "swimsuit", "bare_shoulders"],
+    "ocean":   ["bikini", "wet", "cleavage", "bare_shoulders"],
+    "pool":    ["bikini", "wet", "wet_hair", "cleavage"],
+    "bath":    ["wet", "wet_hair", "blush", "steam", "bare_shoulders"],
+    "shower":  ["wet", "wet_hair", "blush", "steam", "bare_shoulders"],
+    "bedroom": ["bare_shoulders", "blush", "intimate", "dim_lighting", "messy_hair"],
+    "night":   ["dim_lighting", "soft_focus", "moonlight", "bedroom_eyes"],
+    "rain":    ["wet", "wet_hair", "wet_clothes", "see-through"],
+    "forest":  ["sunlight", "thighs", "soft_focus", "messy_hair"],
 }
 
 
@@ -273,48 +381,44 @@ _UNIVERSAL_TAGS: set[str] = {
 _FEWSHOT_EXAMPLES: dict[str, list[tuple[str, str]]] = {
     "safe": [
         (
-            "cat girl sitting on a bench in the park",
-            "1girl, cat_ears, cat_tail, sitting, bench, park, outdoors, day, sky, tree, smile, short_hair, blue_skirt",
+            "a girl, emo, black hair",
+            "1girl, solo, long_hair, black_hair, black_eyes, looking_at_viewer, full_body, standing, open_mouth, twintails, hair_over_one_eye, choker, black_choker, black_shirt, t-shirt, long_sleeves, miniskirt, black_skirt, pleated_skirt, boots, black_boots, knee_boots, arm_warmers, black_arm_warmers, belt, nail_polish, hair_ornament, x_hair_ornament, simple_background, red_background",
         ),
         (
-            "warrior with a sword in a forest",
-            "1girl, warrior, holding_sword, sword, armor, forest, outdoors, day, standing, determined, wind, cape",
+            "warrior girl in a forest with a sword",
+            "1girl, solo, long_hair, silver_hair, ponytail, red_eyes, looking_at_viewer, serious, full_body, standing, holding, holding_sword, sword, armor, breastplate, gauntlets, cape, red_cape, boots, brown_boots, belt, scabbard, forest, outdoors, tree, grass, dappled_sunlight, wind, hair_blowing, depth_of_field, highres",
         ),
         (
-            "a nun giving a blowjob in the alley",
-            "1girl, 1boy, nun, veil, cross, alley, night, street, kneeling, blush, shadow, looking_at_viewer, outdoors, robe",
+            "two girls at a cafe, school uniforms",
+            "2girls, multiple_girls, school_uniform, serafuku, sailor_collar, pleated_skirt, blue_skirt, white_shirt, short_sleeves, sitting, table, cup, coffee, indoors, cafe, window, smile, looking_at_another, brown_hair, ponytail, black_hair, short_hair, bag, school_bag, chair, menu, sunlight",
         ),
     ],
     "creative": [
         (
-            "a nun in the alley",
-            "1girl, nun, veil, cross, alley, night, street, standing, looking_at_viewer, shadow, brick_wall, outdoors, moonlight",
+            "a girl, emo, black hair",
+            "1girl, solo, long_hair, black_hair, black_eyes, looking_at_viewer, full_body, standing, open_mouth, twintails, sidelocks, hair_over_one_eye, choker, black_choker, black_shirt, t-shirt, skeleton_print, long_sleeves, miniskirt, plaid_skirt, red_skirt, pleated_skirt, boots, black_boots, knee_boots, arm_warmers, black_arm_warmers, red_arm_warmers, mismatched_arm_warmers, belt, studded_belt, nail_polish, hair_ornament, x_hair_ornament, ear_piercing, simple_background, red_background, v, hand_up, cellphone, holding_phone, selfie, highres",
         ),
         (
-            "cat girl sitting on a bench in the park",
-            "1girl, cat_ears, cat_tail, sitting, bench, park, outdoors, day, sky, tree, smile, short_hair, blue_skirt, sunlight, cherry_blossoms",
+            "a girl, blonde hair, at the beach",
+            "1girl, solo, blonde_hair, long_hair, ponytail, blue_eyes, looking_at_viewer, smile, teeth, full_body, standing, bikini, white_bikini, side-tie_bikini_bottom, bare_shoulders, navel, collarbone, thighs, wet, wet_hair, barefoot, sand, beach, ocean, wave, sky, cloud, blue_sky, horizon, sunlight, lens_flare, sun, shadow, towel, beach_umbrella, depth_of_field, wind, hair_blowing, highres, absurdres",
         ),
         (
-            "warrior with a sword in a forest",
-            "1girl, warrior, holding_sword, sword, armor, forest, outdoors, day, standing, determined, wind, cape, dappled_light, depth_of_field",
-        ),
-        (
-            "a nun giving a blowjob in the alley",
-            "1girl, 1boy, nun, veil, cross, fellatio, kneeling, alley, night, street, open_mouth, penis, blush, saliva",
+            "boy and girl holding hands in a park, autumn",
+            "1boy, 1girl, hetero, holding_hands, outdoors, park, autumn, autumn_leaves, tree, bench, path, grass, standing, smile, looking_at_another, blush, brown_hair, short_hair, long_hair, black_hair, scarf, red_scarf, coat, brown_coat, skirt, pleated_skirt, boots, school_bag, wind, leaves, warm_lighting, depth_of_field, bokeh, from_behind, full_body, highres",
         ),
     ],
     "mature": [
         (
-            "a nun in the alley",
-            "1girl, nun, veil, cross, alley, night, street, skirt_lift, showing_panties, blush, naughty_face, leaning_forward, shadow, dim_lighting, outdoors, moonlight",
+            "a girl, blonde hair, interracial, blowjob",
+            "1boy, 1girl, hetero, blonde_hair, sidelocks, grey_eyes, looking_at_another, fellatio, oral, penis, large_penis, dark-skinned_male, dark_skin, very_dark_skin, interracial, on_stomach, lying, feet_up, crossed_ankles, indoors, couch, on_couch, bracelet, earrings, jewelry, necklace, ring, eyeshadow, makeup, red_nails, shoes, red_shoes, strappy_heels, hand_on_another's_head, depth_of_field, blurry_background, highres",
         ),
         (
-            "a nun giving a blowjob in the alley",
-            "1girl, 1boy, nun, veil, cross, fellatio, kneeling, alley, night, street, open_mouth, penis, erection, saliva, blush, eye_contact",
+            "a succubus riding a man, dark cathedral, stained glass",
+            "1boy, 1girl, hetero, succubus, demon_girl, horns, demon_horns, demon_tail, demon_wings, purple_hair, long_hair, red_eyes, looking_at_viewer, smile, fangs, nude, breasts, large_breasts, nipples, navel, straddling, girl_on_top, cowgirl_position, sex, vaginal, penis, spread_legs, sweat, blush, indoors, cathedral, stained_glass, candlelight, dim_lighting, cross, pew, stone_floor, depth_of_field, highres, absurdres",
         ),
         (
-            "woman fucked from behind in bedroom",
-            "1girl, 1boy, doggystyle, sex_from_behind, bent_over, ass, penis, penetration, nude, blush, bed, bedroom, indoors, night",
+            "a girl, emo, black hair, bedroom, lingerie",
+            "1girl, solo, long_hair, black_hair, red_eyes, looking_at_viewer, parted_lips, blush, lying, on_back, on_bed, bed, pillow, bedroom, indoors, night, dim_lighting, lamp, lingerie, black_lingerie, lace, bra, panties, thighhighs, black_thighhighs, garter_belt, choker, black_choker, nail_polish, black_nail_polish, collarbone, cleavage, navel, thighs, bare_shoulders, messy_hair, arm_up, hand_in_hair, depth_of_field, highres, absurdres",
         ),
     ],
 }
@@ -330,43 +434,39 @@ _ENRICH_FEWSHOT_EXAMPLES: dict[str, list[tuple[str, str]]] = {
     "safe": [
         (
             "1girl, beach, volleyball",
-            "swimsuit, bikini, sand, ocean, sky, cloud, smile, outdoors, day, sunlight, ponytail, ball, jumping, sweat, tan, athletic, blue_sky, horizon, wave, towel",
+            "solo, blonde_hair, ponytail, blue_eyes, smile, teeth, athletic, tan, bikini, white_bikini, sports_bikini, barefoot, jumping, arm_up, reaching, ball, sand, ocean, sky, blue_sky, cloud, sunlight, sweat, motion_blur, full_body, outdoors, day, highres",
         ),
         (
             "1girl, witch_hat, forest",
-            "witch, robe, broom, magic, tree, outdoors, night, moonlight, glowing, long_hair, cape, staff, fog, mystical, leaves, owl, lantern, path, dark, stars",
+            "solo, long_hair, purple_hair, green_eyes, smile, witch, robe, black_robe, cape, staff, holding, holding_staff, broom, pointy_hat, boots, brown_boots, belt, pouch, forest, tree, outdoors, night, moonlight, glowing, fog, path, leaves, lantern, full_body, standing, highres",
         ),
         (
             "1girl, maid, kitchen",
-            "maid_headdress, apron, frills, indoors, cooking, day, smile, long_hair, counter, stove, plate, food, window, sunlight, wooden_floor, steam, pot, spoon, cheerful, ribbon",
+            "solo, brown_hair, long_hair, braid, blue_eyes, smile, maid, maid_headdress, apron, white_apron, black_dress, long_sleeves, frills, ribbon, thighhighs, white_thighhighs, shoes, holding, ladle, cooking, indoors, kitchen, counter, stove, pot, steam, window, sunlight, tile_floor, full_body, standing, highres",
         ),
     ],
     "creative": [
         (
             "1girl, beach, volleyball",
-            "swimsuit, bikini, sand, ocean, sky, cloud, smile, outdoors, day, sunlight, ponytail, motion_blur, wet_hair, sunset, beach_towel, jumping, sweat, tan, athletic, splash, wave, horizon, depth_of_field, lens_flare",
+            "solo, blonde_hair, ponytail, hair_tie, blue_eyes, looking_at_viewer, smile, teeth, open_mouth, athletic, tan, tanlines, bikini, white_bikini, sports_bikini, side-tie_bikini_bottom, barefoot, jumping, arm_up, reaching, outstretched_arm, ball, volleyball, sand, ocean, wave, splash, sky, blue_sky, cloud, horizon, sunlight, lens_flare, sweat, wet, motion_blur, depth_of_field, full_body, outdoors, day, summer, highres, absurdres",
         ),
         (
-            "1girl, witch_hat, forest",
-            "witch, robe, broom, magic, tree, outdoors, night, moonlight, glowing, fog, mystical, depth_of_field, floating_hair, cape, staff, lantern, fireflies, dark, wind, leaves, stars, silhouette",
-        ),
-        (
-            "1girl, 1boy, bedroom",
-            "bed, indoors, night, lamp, window, blush, looking_at_viewer, intimate, dim_lighting, kissing, curtains, moonlight, pillow, blanket, embrace, closed_eyes, long_hair, bare_shoulders, romantic, warm_lighting",
+            "1girl, 1boy, school_uniform, classroom",
+            "hetero, brown_hair, long_hair, ponytail, ribbon, hair_ribbon, brown_eyes, looking_at_another, blush, smile, black_hair, short_hair, school_uniform, serafuku, sailor_collar, pleated_skirt, blue_skirt, white_shirt, short_sleeves, kneehighs, white_kneehighs, loafers, necktie, pants, black_pants, sitting, desk, chair, leaning_forward, hand_on_desk, indoors, classroom, chalkboard, window, curtains, sunlight, afternoon, depth_of_field, highres, absurdres",
         ),
     ],
     "mature": [
         (
             "1girl, 1boy, bedroom",
-            "bed, indoors, night, nude, breasts, nipples, sex, penetration, blush, open_mouth, moaning, dim_lighting, sweat, spread_legs, missionary, pillow, on_back, eye_contact, panting, saliva, messy_hair, intimate",
+            "hetero, long_hair, brown_hair, brown_eyes, blush, open_mouth, moaning, nude, breasts, medium_breasts, nipples, navel, sweat, on_back, lying, spread_legs, missionary, sex, vaginal, penis, penetration, pillow, bed_sheet, indoors, bedroom, night, lamp, dim_lighting, messy_hair, tears, saliva, panting, hand_on_another's_chest, depth_of_field, highres, absurdres",
         ),
         (
             "1girl, 1boy, fellatio, nun",
-            "veil, cross, habit, kneeling, open_mouth, penis, saliva, tongue_out, blush, tears, eye_contact, indoors, cathedral, stained_glass, night, robe, deepthroat, drooling, hands_on_head, submissive, dim_lighting, candlelight",
+            "hetero, nun, veil, white_veil, cross, cross_necklace, habit, black_habit, robe, kneeling, fellatio, oral, penis, large_penis, open_mouth, tongue, tongue_out, saliva, saliva_trail, blush, tears, looking_up, eye_contact, hand_on_another's_thigh, indoors, cathedral, stained_glass, candlelight, dim_lighting, stone_floor, pew, night, depth_of_field, highres, absurdres",
         ),
         (
             "1girl, maid, library",
-            "maid_headdress, apron, indoors, bookshelf, book, blush, cleavage, large_breasts, bent_over, skirt_lift, showing_panties, dim_lighting, thighhighs, garter_belt, looking_back, naughty_face, sweat, ass, frills, lace",
+            "solo, long_hair, black_hair, red_eyes, looking_back, blush, parted_lips, maid, maid_headdress, apron, white_apron, black_dress, short_sleeves, frills, thighhighs, black_thighhighs, garter_belt, garter_straps, shoes, bent_over, skirt_lift, ass, panties, white_panties, cleavage, large_breasts, indoors, library, bookshelf, book, desk, lamp, dim_lighting, wooden_floor, depth_of_field, highres, absurdres",
         ),
     ],
 }
@@ -409,7 +509,7 @@ class DescriptionTagger:
     DEFAULT_MODEL = "richardyoung/qwen3-14b-abliterated:latest"
     DEFAULT_HOST = "http://localhost:11434"
     DEFAULT_CREATIVITY = "creative"
-    MAX_TAGS = 50  # Increased for better coverage
+    MAX_TAGS = 60  # Allow up to 60 tags for Danbooru-density output
     _NSFW_MODES = {"mature"}
     _VALID_CREATIVITIES = {"safe", "creative", "mature"}
     
@@ -626,45 +726,37 @@ class DescriptionTagger:
         "safe": (
             "SAFE MODE RULES:\n"
             "- NEVER use explicit/sexual tags (penis, fellatio, sex, nude, cum, erection, etc.).\n"
-            "- If the description mentions sexual acts, describe ONLY the scene context:\n"
-            "  the characters' appearance, clothing, setting, mood, lighting, and non-sexual pose.\n"
-            "- Focus on atmosphere, environment, and character details.\n"
-            "- Output 15-25 tags covering: participants, clothing, setting, lighting, mood."
+            "- Stay close to the description but be THOROUGH — tag every visual element.\n"
+            "- Output 20-35 tags. Cover ALL categories that apply."
         ),
         "creative": (
             "CREATIVE MODE RULES:\n"
-            "- You may use mild action/pose tags implied by the description.\n"
-            "- Add scene context, lighting, and composition cues where appropriate.\n"
-            "- Do NOT add cum/ejaculation/finish tags unless the description explicitly\n"
-            "  mentions cum, creampie, ejaculation, or similar finish-related words.\n"
-            "- Output 20-35 tags covering: participants, action, clothing, setting, lighting, mood, style."
+            "- Be EXHAUSTIVE. Tag every visual element you can imagine in this scene.\n"
+            "- Invent specific clothing items, accessories, colors, materials.\n"
+            "- Add specific pose details (which arm, hand position, leg position).\n"
+            "- Add background objects, furniture, props that fit the scene.\n"
+            "- Do NOT contradict the description. Stay SFW unless the user is explicit.\n"
+            "- Do NOT add cum/ejaculation tags unless the description explicitly says so.\n"
+            "- Output 35-50 tags. MORE IS BETTER. Tag like a real Danbooru annotator."
         ),
         "mature": (
             "MATURE MODE RULES:\n"
-            "- You may use explicit/sexual tags freely when the description calls for them.\n"
-            "- For explicit scenes: include participant counts (1girl, 1boy, etc.), sexual acts\n"
-            "  (fellatio, sex, penetration, etc.), body parts (penis, breasts, pussy, etc.),\n"
-            "  expressions (ahegao, blush, open_mouth), and fluids (cum, saliva, etc.).\n"
-            "- For non-explicit descriptions, be BOLD and SUGGESTIVE: add clothing-state\n"
-            "  tags (clothes_lift, skirt_lift, showing_panties, underwear, torn_clothes),\n"
-            "  body language (bent_over, leaning_forward, legs_apart, arched_back),\n"
-            "  expressions (blush, naughty_face, bedroom_eyes, licking_lips), and mood\n"
-            "  (dim_lighting, night, intimate, shadow, candlelight).\n"
-            "- Be inventive with atmosphere and implication. Lean into the adult reading\n"
-            "  of the scene without fabricating sex acts that weren't mentioned.\n"
-            "- Include participant counts, clothing details, expressions, and setting.\n"
-            "- Do NOT add cum/ejaculation/finish tags unless the description explicitly\n"
-            "  mentions cum, creampie, ejaculation, or similar finish-related words.\n"
-            "- Output 25-40 tags covering: participants, explicit acts, body parts, clothing state,\n"
-            "  expressions, fluids, setting, lighting, mood."
+            "- Be EXHAUSTIVE like Creative mode — tag every visual element.\n"
+            "- Add suggestive/explicit tags appropriate to the scene.\n"
+            "- If the description IS explicit: include anatomy, positions, expressions,\n"
+            "  fluids, and reactions in detail.\n"
+            "- If the description is SFW: add tasteful suggestive flair (cleavage,\n"
+            "  thighs, bare_shoulders, bedroom_eyes, etc.) but don't force nudity.\n"
+            "- Do NOT add cum/ejaculation tags unless the description explicitly says so.\n"
+            "- Output 35-50 tags. MORE IS BETTER. Tag like a real Danbooru annotator."
         ),
     }
 
     def _build_system_prompt(self, creativity: str, description: str = "") -> str:
         """Build a vocabulary-grounded system prompt for *creativity* mode.
 
-        When *description* is provided, prompt-specific tags matching the
-        description keywords are injected into the vocabulary section.
+        Uses structured category slots to force the LLM to cover all visual
+        aspects of the scene, producing Danbooru-density tag output.
         """
         if creativity not in self._VALID_CREATIVITIES:
             creativity = self.DEFAULT_CREATIVITY
@@ -672,25 +764,85 @@ class DescriptionTagger:
         vocab = self._build_vocabulary_section(creativity, description)
         extra_rules = self._MODE_EXTRA_RULES.get(creativity, "")
 
-        prompt = f"""You are a Danbooru-style image tag generator. Convert the user's description
-into a comma-separated list of tags.
+        # Structured category checklist — the key innovation for rich output
+        if creativity == "safe":
+            category_checklist = (
+                "For EACH tag you output, it should belong to one of these categories.\n"
+                "Cover AS MANY categories as apply to the scene:\n"
+                "  [PARTICIPANTS] 1girl, 1boy, solo, multiple_girls, etc.\n"
+                "  [HAIR] color, length, style (ponytail, twintails, braid, messy_hair, etc.)\n"
+                "  [EYES] color, expression (half-closed_eyes, looking_at_viewer, etc.)\n"
+                "  [CLOTHING] SPECIFIC items with colors (black_shirt, pleated_skirt, boots, etc.)\n"
+                "  [ACCESSORIES] jewelry, hair_ornament, choker, belt, bag, phone, etc.\n"
+                "  [BODY] body type, skin details, collarbone, bare_shoulders, etc.\n"
+                "  [POSE] specific pose (standing, arm_up, hand_on_hip, crossed_arms, etc.)\n"
+                "  [EXPRESSION] smile, open_mouth, blush, frown, etc.\n"
+                "  [SETTING] location, background, indoors/outdoors\n"
+                "  [FRAMING] full_body, upper_body, cowboy_shot, close-up, from_behind, etc.\n"
+                "  [QUALITY] highres, absurdres, detailed, etc."
+            )
+            target_range = "20-35 tags"
+        elif creativity == "creative":
+            category_checklist = (
+                "For EACH tag you output, it should belong to one of these categories.\n"
+                "You MUST cover ALL categories that apply — be exhaustive like a real tagger:\n"
+                "  [PARTICIPANTS] 1girl, 1boy, solo, hetero, multiple_girls, etc.\n"
+                "  [HAIR] color + length + style (e.g. long_hair, black_hair, twintails, sidelocks)\n"
+                "  [EYES] color + expression (e.g. red_eyes, looking_at_viewer, half-closed_eyes)\n"
+                "  [CLOTHING] EVERY visible item with color/material (e.g. black_shirt, pleated_skirt,\n"
+                "    thighhighs, boots, jacket — be SPECIFIC about each piece)\n"
+                "  [ACCESSORIES] choker, belt, jewelry, earrings, hair_ornament, phone, bag, etc.\n"
+                "  [BODY] collarbone, navel, bare_shoulders, thighs, midriff, etc.\n"
+                "  [POSE] SPECIFIC actions (arm_up, hand_on_hip, holding_phone, crossed_arms,\n"
+                "    leaning_forward, v, peace_sign, selfie, etc.)\n"
+                "  [EXPRESSION] smile, open_mouth, blush, parted_lips, teeth, :d, etc.\n"
+                "  [SETTING] specific location + objects (bench, desk, couch, window, etc.)\n"
+                "  [LIGHTING] sunlight, shadow, backlighting, dim_lighting, etc.\n"
+                "  [ATMOSPHERE] depth_of_field, bokeh, wind, rain, petals, etc.\n"
+                "  [FRAMING] full_body, cowboy_shot, upper_body, from_behind, dutch_angle, etc.\n"
+                "  [QUALITY] highres, absurdres, detailed, etc."
+            )
+            target_range = "35-50 tags"
+        else:  # mature
+            category_checklist = (
+                "For EACH tag you output, it should belong to one of these categories.\n"
+                "You MUST cover ALL categories that apply — be exhaustive like a real tagger:\n"
+                "  [PARTICIPANTS] 1girl, 1boy, solo, hetero, multiple_girls, etc.\n"
+                "  [HAIR] color + length + style\n"
+                "  [EYES] color + expression\n"
+                "  [CLOTHING] EVERY visible item OR state of undress (nude, topless, etc.)\n"
+                "  [ACCESSORIES] choker, jewelry, collar, restraints, etc.\n"
+                "  [BODY] breasts, ass, thighs, navel, collarbone, skin color, etc.\n"
+                "  [NSFW] sexual acts, positions, anatomy, fluids, reactions AS APPROPRIATE\n"
+                "  [POSE] specific body position and limb placement\n"
+                "  [EXPRESSION] ahegao, blush, open_mouth, tears, moaning, etc.\n"
+                "  [SETTING] specific location + furniture/objects\n"
+                "  [LIGHTING] dim_lighting, backlighting, candlelight, etc.\n"
+                "  [ATMOSPHERE] depth_of_field, sweat, steam, etc.\n"
+                "  [FRAMING] full_body, cowboy_shot, from_behind, pov, etc.\n"
+                "  [QUALITY] highres, absurdres, detailed, etc."
+            )
+            target_range = "35-50 tags"
+
+        prompt = f"""You are a Danbooru image tagger. Convert the user's description into a
+COMPREHENSIVE comma-separated tag list, exactly like tags on a real Danbooru/Gelbooru post.
 
 CRITICAL RULES:
 - Output ONLY tags separated by commas. No prose, no markdown, no explanations.
 - Do NOT write <think> or reasoning blocks. Output tags immediately.
-- Use lowercase with underscores for spaces (Danbooru format).
-- Prefer tags from the AVAILABLE VOCABULARY below — these are the most commonly used
-  tags and will produce the strongest image generation results.
-- Only add tags that are DIRECTLY implied by the description. Do NOT invent elements
-  that are not mentioned or strongly suggested.
-- Limit output to the natural number of tags the description warrants.
+- Use lowercase with underscores (Danbooru format): black_hair, looking_at_viewer
+- Be SPECIFIC about clothing (not just "dress" but "black_dress, long_sleeves, frills")
+- Be SPECIFIC about poses (not just "standing" but "standing, hand_on_hip, arm_up")
+- Tag COLORS of items: black_boots, red_skirt, white_shirt
+- Aim for {target_range}. Real Danbooru posts have 30-50+ tags. MORE IS BETTER.
+- Do NOT contradict the description.
 {extra_rules}
 
-AVAILABLE VOCABULARY (most common Danbooru tags — prefer these):
-{vocab}
+CATEGORY CHECKLIST — cover all that apply:
+{category_checklist}
 
-OUTPUT FORMAT (example):
-1girl, solo, long_hair, blue_eyes, smile, outdoors, day, sky, cloud
+AVAILABLE VOCABULARY (prefer these common tags):
+{vocab}
 
 Now output ONLY the comma-separated tags for the user's description."""
 
@@ -853,21 +1005,43 @@ Now output ONLY the comma-separated tags for the user's description."""
             # For 1-part tags, any match is perfect.
             if len(meaningful_tag_parts) <= 1:
                 return 3
-            # For 2-part tags, require BOTH tokens supported. Single-token
-            # overlap like `master_sword` (master unsupported) should fail.
+            # For 2-part tags: distinguish descriptive compounds (shaded_face,
+            # soft_lighting, forest_mist) from franchise collisions (master_sword,
+            # library_of_ruina). Descriptive compounds have a modifier + a noun
+            # that appears in the description — allow them at score 2.
             if len(meaningful_tag_parts) == 2:
                 foreign = meaningful_tag_parts - description_keywords
                 if not foreign:
-                    return 3
-                # Check archetype expansion — if the non-matching token is part
-                # of a known expansion for something in the description, allow.
+                    return 3  # Both tokens in description — strong match
+                # One token matches. Check if the foreign token looks like a
+                # proper noun (starts uppercase in original, or is a known
+                # franchise word). We work on lowercase so use a heuristic:
+                # if the foreign token is short (≤4 chars) or is a common
+                # modifier word, it's likely descriptive, not a franchise name.
+                _COMMON_MODIFIERS = {
+                    "soft", "hard", "dark", "light", "bright", "dim", "deep",
+                    "high", "low", "long", "short", "wide", "narrow", "open",
+                    "closed", "bare", "wet", "dry", "warm", "cool", "cold",
+                    "hot", "gentle", "heavy", "light", "natural", "shaded",
+                    "muted", "vivid", "pale", "rich", "thin", "thick", "small",
+                    "large", "big", "tiny", "full", "half", "side", "back",
+                    "front", "top", "bottom", "inner", "outer", "upper", "lower",
+                    "mid", "far", "near", "distant", "close", "deep", "shallow",
+                    "misty", "foggy", "sunny", "cloudy", "rainy", "snowy",
+                    "windy", "stormy", "calm", "quiet", "loud", "silent",
+                    "dynamic", "static", "flowing", "floating", "falling",
+                    "rising", "glowing", "shining", "sparkling", "fading",
+                }
+                if all(tok in _COMMON_MODIFIERS or len(tok) <= 3
+                       for tok in foreign):
+                    return 2  # Descriptive compound — allow
+                # Check archetype expansion
                 if all(
                     tok in description_keywords or tok in expanded_concepts
-                    or any(tok in expanded for expanded in description_keywords)
                     for tok in meaningful_tag_parts
                 ):
                     return 2
-                return 0
+                return 0  # Likely franchise tag
             # For longer tags (franchise candidates), demand that the
             # fraction of description-supported tokens is high.
             foreign = meaningful_tag_parts - description_keywords
@@ -914,18 +1088,18 @@ Now output ONLY the comma-separated tags for the user's description."""
     def _post_process_tags(self, tags: list[str], creativity: str, target_count: int,
                            description: str = "",
                            injected_tags: set[str] | None = None,
-                           skip_relevance_gate: bool = False) -> list[str]:
+                           skip_relevance_gate: bool = False,
+                           seed_tags: list[str] | None = None) -> list[str]:
         """Post-processing pipeline.
 
-        1. Validate against CSV whitelist (already done by _parse_tags)
-        2. Filter by post_count threshold
-        3. Block sensitive tags unless explicitly mentioned in description
-        4. **Relevance gate** — drop tags with no support in the description
-           (skipped when *skip_relevance_gate* is True, e.g. for enrichment)
-        5. Semantic deduplication
-        6. **Pose/viewpoint conflict resolution**
-        7. Sort by post_count descending
-        8. Cap to target count
+        gate modes (controlled via skip_relevance_gate + injected_tags):
+        - skip_relevance_gate=False : strict gate (description-to-tags)
+        - skip_relevance_gate=True  : enrichment gate — seeds drive the
+          allowed set; thin-seed runs (only universal tags) pass everything
+
+        The minimum gate score required to keep a tag depends on *creativity*:
+        Safe demands strong support (>= 2), Creative/Mature accept any
+        plausible (>= 1) tag, including universal atmosphere/style tags.
         """
         injected_tags = injected_tags or set()
 
@@ -938,9 +1112,38 @@ Now output ONLY the comma-separated tags for the user's description."""
             tags = [t for t in tags if t not in self._SENSITIVE_TAGS
                     or any(kw in desc_lower for kw in (t, t.replace("_", " ")))]
 
-        # Step 4: Relevance gate — score each tag and drop score-0 unless injected.
-        # Skipped for enrichment mode where the whole point is adding new things.
-        if description and not skip_relevance_gate:
+        # Step 3b: block explicit/sex-act tags entirely in Safe mode regardless
+        # of what the description says — Safe is a hard SFW guarantee.
+        if creativity == "safe":
+            # Block explicit sex-act tags
+            tags = [t for t in tags if t not in _ACTOR_ACT_TAGS or t in {
+                "1girl", "2girls", "3girls", "multiple_girls",
+                "1boy", "2boys", "3boys", "multiple_boys",
+                "kneeling", "bent_over", "on_all_fours", "on_back",
+                "spread_legs", "lying", "open_mouth", "blush", "tears",
+                "breasts", "large_breasts",
+            }]
+            # Also block suggestive body-focus tags in Safe mode unless the
+            # description explicitly names them (e.g. user says "bikini" so
+            # bare_shoulders is fine, but "cleavage" is suggestive flair).
+            _SAFE_BLOCKED_SUGGESTIVE = {
+                "cleavage", "navel", "thighs", "midriff", "bare_shoulders",
+                "sideboob", "underboob", "ass", "bare_ass", "pantyshot",
+                "skirt_lift", "showing_panties", "see-through", "wet_clothes",
+                "seductive_smile", "naughty_face", "bedroom_eyes",
+                "lipstick", "garter_belt",
+            }
+            desc_lower_safe = description.lower() if description else ""
+            tags = [
+                t for t in tags
+                if t not in _SAFE_BLOCKED_SUGGESTIVE
+                or t.replace("_", " ") in desc_lower_safe
+                or t in desc_lower_safe
+            ]
+
+        # Step 4: Relevance gate — score each tag and drop tags below the
+        # mode-specific threshold unless injected.
+        if description:
             desc_keywords = set(self._extract_keywords(description))
             expanded: set[str] = set()
             for kw in desc_keywords:
@@ -963,15 +1166,62 @@ Now output ONLY the comma-separated tags for the user's description."""
                     if act_kw in desc_lower:
                         expanded.update(expansions)
 
+            # For enrichment, also treat every injected seed tag as a keyword
+            # so the gate allows tags that are plausible neighbours of the seeds
+            # even if they don't appear in the pseudo-description text.
+            if skip_relevance_gate and injected_tags:
+                for seed in injected_tags:
+                    for part in seed.split("_"):
+                        desc_keywords.add(part)
+                    for part in seed.split("_"):
+                        for tag in _CONCEPT_EXPANSIONS.get(part, []):
+                            expanded.add(tag)
+                        if creativity != "safe":
+                            for tag in _ACT_EXPANSIONS.get(part, []):
+                                expanded.add(tag)
+                    for tag in _CONCEPT_EXPANSIONS.get(seed, []):
+                        expanded.add(tag)
+                    if creativity != "safe":
+                        for tag in _ACT_EXPANSIONS.get(seed, []):
+                            expanded.add(tag)
+
             scored = [
                 (t, self._score_tag_relevance(t, desc_keywords, expanded, injected_tags))
                 for t in tags
             ]
-            # Strict gate: keep only tags with positive relevance.
-            # If this annihilates everything, the retry loop in
-            # generate_tags() will rerun at higher temperature — better
-            # than padding with probable-hallucinations.
-            tags = [t for t, s in scored if s >= 1]
+
+            # Mode-specific gate threshold:
+            #   Safe     → require >= 1 (literal + expansion + universal atmosphere)
+            #              Suggestive content is blocked separately in Step 3b.
+            #   Creative → require >= 1 (allows universal atmosphere/style)
+            #   Mature   → require >= 1 (same as Creative; wildcards added later)
+            min_score = 1
+
+            # For thin-seed enrichment, the LLM is inventing the scene from
+            # scratch — drop the gate entirely.
+            thin_seeds = (
+                skip_relevance_gate
+                and seed_tags is not None
+                and not self._seeds_have_context(seed_tags)
+            )
+            if thin_seeds:
+                tags = [t for t, _ in scored]  # gate fully open
+            else:
+                tags = [t for t, s in scored if s >= min_score]
+
+        # Step 4b: Mature wildcard injection — when in Mature mode and the
+        # description is not already explicit, sprinkle in 1-3 tasteful
+        # suggestive tags that match the scene cues.
+        if creativity == "mature" and description:
+            tags = self._inject_mature_wildcards(tags, description)
+
+        # Step 4c: Backfill — if the tag list is short, top up from concept
+        # expansions and the universal atmosphere pool so the output feels
+        # complete. Safe gets a lighter backfill; Creative/Mature get more.
+        if description:
+            tags = self._backfill_atmosphere(
+                tags, description, target_count=target_count, creativity=creativity
+            )
 
         # Step 5: semantic dedup — keep highest-count tag per synonym group
         seen_canonicals: set[str] = set()
@@ -1008,6 +1258,198 @@ Now output ONLY the comma-separated tags for the user's description."""
 
         # Step 8: cap
         return deduped[:target_count]
+
+    def _inject_mature_wildcards(
+        self, tags: list[str], description: str
+    ) -> list[str]:
+        """Add tasteful suggestive tags for Mature mode on SFW descriptions.
+
+        If the user's description (or the current tag list) already contains
+        explicit content, return *tags* unchanged. Otherwise pick 1-3
+        wildcards from the cue-matched pool, falling back to the generic pool.
+        """
+        explicit_markers = {
+            "sex", "fellatio", "blowjob", "anal", "cum", "creampie", "fuck",
+            "oral", "penetration", "rape", "deepthroat", "handjob", "footjob",
+            "masturbation", "ahegao", "doggystyle", "missionary", "cowgirl",
+        }
+        desc_lower = description.lower()
+        if any(marker in desc_lower for marker in explicit_markers):
+            return tags
+        # Already-explicit tag list → don't pile on
+        explicit_tags = {
+            "penis", "pussy", "fellatio", "sex", "vaginal", "anal", "cum",
+            "cumshot", "creampie", "ahegao", "nude", "completely_nude",
+            "doggystyle", "missionary", "cowgirl_position", "deepthroat",
+        }
+        if any(t in explicit_tags for t in tags):
+            return tags
+
+        # Pick wildcard pool based on cues in the description
+        candidates: list[str] = []
+        for cue, pool in _MATURE_WILDCARDS_BY_CUE.items():
+            if cue in desc_lower:
+                candidates.extend(pool)
+        if not candidates:
+            candidates = list(_MATURE_WILDCARDS_GENERIC)
+
+        # Stable per-description pick — same description gets same wildcards
+        seed = hashlib.md5(description.strip().lower().encode("utf-8")).hexdigest()
+        offset = int(seed[:8], 16)
+        existing = set(tags)
+        result = list(tags)
+        added = 0
+        n_wildcards = 2 + (offset % 2)  # 2-3 wildcards
+        for i in range(len(candidates)):
+            cand = candidates[(offset + i) % len(candidates)]
+            if cand in existing:
+                continue
+            if not self.tag_index.is_valid(cand):
+                continue
+            result.append(cand)
+            existing.add(cand)
+            added += 1
+            if added >= n_wildcards:
+                break
+        return result
+
+    def _backfill_atmosphere(
+        self,
+        tags: list[str],
+        description: str,
+        target_count: int,
+        creativity: str,
+    ) -> list[str]:
+        """Top up *tags* with concept-expansion + universal atmosphere tags.
+
+        When the LLM produces a sparse result, we still want the output to
+        feel complete. This method pulls from :data:`_CONCEPT_EXPANSIONS`
+        (matched against keywords/phrases in the description) and a curated
+        atmosphere pool drawn from :data:`_UNIVERSAL_TAGS`.
+
+        Safe mode gets a lighter backfill (60% of target) and skips
+        suggestive tags. Creative/Mature aim for 80%.
+        """
+        # Safe aims lower — it should stay literal
+        fill_ratio = 0.60 if creativity == "safe" else 0.80
+        min_desired = max(15, int(target_count * fill_ratio))
+        if len(tags) >= min_desired:
+            return tags
+
+        # Tags blocked from backfill in Safe mode
+        _SAFE_BACKFILL_BLOCKED = {
+            "cleavage", "navel", "thighs", "midriff", "bare_shoulders",
+            "sideboob", "underboob", "wet", "wet_hair", "wet_clothes",
+            "seductive_smile", "naughty_face", "bedroom_eyes", "lipstick",
+            "see-through", "garter_belt", "pantyshot", "skirt_lift",
+        }
+
+        existing = set(tags)
+        result = list(tags)
+        desc_lower = description.lower()
+        desc_keywords = set(self._extract_keywords(description))
+
+        # 1) Concept expansions for archetypes/settings the user mentioned
+        backfill_pool: list[str] = []
+        for archetype, expansions in _CONCEPT_EXPANSIONS.items():
+            if archetype in desc_lower or archetype in desc_keywords:
+                for tag in expansions:
+                    if tag not in existing and tag not in backfill_pool:
+                        if creativity == "safe" and tag in _SAFE_BACKFILL_BLOCKED:
+                            continue
+                        backfill_pool.append(tag)
+
+        # 2) Act expansions outside Safe mode
+        if creativity != "safe":
+            for act_kw, expansions in _ACT_EXPANSIONS.items():
+                if act_kw in desc_lower or act_kw in desc_keywords:
+                    for tag in expansions:
+                        if tag not in existing and tag not in backfill_pool:
+                            backfill_pool.append(tag)
+
+        # 3) Clothing/accessory/detail pool — specific items that make
+        #    output feel like real Danbooru tags (not just atmosphere)
+        detail_pool: list[str] = []
+        # Add clothing details based on archetype cues
+        if any(kw in desc_lower for kw in ("emo", "goth", "punk")):
+            detail_pool.extend([
+                "black_shirt", "t-shirt", "long_sleeves", "miniskirt",
+                "pleated_skirt", "black_skirt", "boots", "black_boots",
+                "knee_boots", "arm_warmers", "black_arm_warmers",
+                "nail_polish", "hair_ornament", "x_hair_ornament",
+                "hair_over_one_eye", "twintails", "sidelocks",
+                "simple_background", "red_background", "full_body",
+                "standing", "solo",
+            ])
+        if any(kw in desc_lower for kw in ("school", "uniform", "student")):
+            detail_pool.extend([
+                "serafuku", "sailor_collar", "pleated_skirt", "blue_skirt",
+                "white_shirt", "short_sleeves", "kneehighs", "loafers",
+                "school_bag", "hair_ribbon",
+            ])
+        if any(kw in desc_lower for kw in ("bikini", "swimsuit", "beach", "lake")):
+            detail_pool.extend([
+                "barefoot", "sand", "towel", "sunscreen",
+                "side-tie_bikini_bottom", "tan", "tanlines",
+            ])
+        if any(kw in desc_lower for kw in ("elf", "archer", "warrior", "knight")):
+            detail_pool.extend([
+                "bow_(weapon)", "quiver", "arrow", "cape", "leather",
+                "belt", "pouch", "gauntlets", "armor",
+            ])
+        for tag in detail_pool:
+            if tag not in existing and tag not in backfill_pool:
+                if creativity == "safe" and tag in _SAFE_BACKFILL_BLOCKED:
+                    continue
+                if self.tag_index.is_valid(tag):
+                    backfill_pool.append(tag)
+
+        # 4) Curated atmosphere/quality pool — universal tags that
+        #    enhance any image-gen prompt
+        atmosphere_pool = [
+            "depth_of_field", "soft_focus", "bokeh", "highres", "absurdres",
+        ]
+        # Add outdoor atmosphere only if scene is outdoors
+        outdoor_cues = ("lake", "river", "ocean", "beach", "park", "forest",
+                        "mountain", "field", "meadow", "garden", "city",
+                        "street", "alley", "rooftop", "outdoor", "outside",
+                        "cliff", "sunset")
+        if any(c in desc_lower for c in outdoor_cues) or "outdoors" in tags:
+            atmosphere_pool.extend([
+                "sky", "cloud", "sunlight", "shadow", "wind",
+                "blue_sky", "scenery", "outdoors",
+            ])
+        # Add indoor atmosphere only if scene is indoors
+        indoor_cues = ("bedroom", "kitchen", "library", "office", "classroom",
+                       "indoor", "inside", "bathroom", "living_room",
+                       "cathedral", "church")
+        if any(c in desc_lower for c in indoor_cues) or "indoors" in tags:
+            atmosphere_pool.extend([
+                "indoors", "window", "curtains", "warm_lighting",
+                "soft_lighting", "lamp",
+            ])
+
+        for tag in atmosphere_pool:
+            if tag not in existing and self.tag_index.is_valid(tag):
+                if creativity == "safe" and tag in _SAFE_BACKFILL_BLOCKED:
+                    continue
+                backfill_pool.append(tag)
+                existing.add(tag)
+
+        # Add backfill candidates until we hit min_desired
+        for cand in backfill_pool:
+            if len(result) >= min_desired:
+                break
+            if cand in existing and cand not in result:
+                result.append(cand)
+            elif cand not in existing:
+                if not self.tag_index.is_valid(cand):
+                    continue
+                if creativity == "safe" and cand in _SAFE_BACKFILL_BLOCKED:
+                    continue
+                result.append(cand)
+                existing.add(cand)
+        return result
 
     # ------------------------------------------------------------------
     # Literal / actor extraction  (kept from old code — still useful)
@@ -1072,6 +1514,10 @@ Now output ONLY the comma-separated tags for the user's description."""
             ("dark skinned", "dark_skin"),
             ("dark-skinned", "dark_skin"),
             ("dark skin", "dark_skin"),
+            # Subcultures / aesthetic
+            ("emo", "goth"),
+            ("goth", "goth"),
+            ("punk", "punk"),
             # Hair colour (expand)
             ("blonde", "blonde_hair"),
             ("blond", "blonde_hair"),
@@ -1102,6 +1548,25 @@ Now output ONLY the comma-separated tags for the user's description."""
             ("naked", "nude"),
             ("topless", "topless"),
             ("bottomless", "bottomless"),
+            ("bikini", "bikini"),
+            ("swimsuit", "swimsuit"),
+            ("one-piece", "one-piece_swimsuit"),
+            ("school uniform", "school_uniform"),
+            # Settings (literal)
+            ("lake", "lake"),
+            ("river", "river"),
+            ("ocean", "ocean"),
+            ("beach", "beach"),
+            ("forest", "forest"),
+            ("park", "park"),
+            ("bedroom", "bedroom"),
+            ("kitchen", "kitchen"),
+            ("library", "library"),
+            ("classroom", "classroom"),
+            ("rooftop", "rooftop"),
+            ("alley", "alley"),
+            ("cathedral", "cathedral"),
+            ("church", "church"),
             # Anatomy (when user explicitly names them)
             ("penis", "penis"),
             ("cock", "penis"),
@@ -1229,12 +1694,12 @@ Now output ONLY the comma-separated tags for the user's description."""
             )
 
         mode_options = {
-            "safe":     {"base_temp": 0.50, "num_predict": 300, "target_tags": 20,
-                         "top_p": 0.92, "min_accept": 3, "max_attempts": 3},
-            "creative": {"base_temp": 0.65, "num_predict": 450, "target_tags": 30,
-                         "top_p": 0.95, "min_accept": 5, "max_attempts": 3},
-            "mature":   {"base_temp": 1.05, "num_predict": 600, "target_tags": 40,
-                         "top_p": 0.98, "min_accept": 6, "max_attempts": 3},
+            "safe":     {"base_temp": 0.55, "num_predict": 500, "target_tags": 35,
+                         "top_p": 0.92, "min_accept": 10, "max_attempts": 3},
+            "creative": {"base_temp": 0.75, "num_predict": 700, "target_tags": 50,
+                         "top_p": 0.95, "min_accept": 20, "max_attempts": 3},
+            "mature":   {"base_temp": 0.90, "num_predict": 800, "target_tags": 50,
+                         "top_p": 0.97, "min_accept": 20, "max_attempts": 3},
         }
         opts = mode_options[creativity]
         target_tags = opts["target_tags"]
@@ -1327,8 +1792,11 @@ Now output ONLY the comma-separated tags for the user's description."""
                     best_tags = list(final_tags)
                     best_raw = raw_text_final
 
-                # Only accept if we got a meaningful result for this mode
-                if len(final_tags) >= min_accept:
+                # Accept based on LLM-produced tags (before backfill) to
+                # avoid accepting sparse LLM output that was padded by
+                # backfill. parsed_tags is what the model actually generated.
+                llm_produced = len(parsed_tags)
+                if llm_produced >= min_accept:
                     return DescriptionTagResult(
                         tags=final_tags[:target_tags],
                         raw_response=raw_text_final,
@@ -1432,13 +1900,42 @@ Now output ONLY the comma-separated tags for the user's description."""
             valid.append(tag)
         return valid
 
+    # Tags that are "universal" — they carry no scene/archetype/act context
+    # on their own. Seeds consisting only of these need special handling.
+    _CONTEXT_FREE_TAGS: set[str] = {
+        "1girl", "2girls", "3girls", "multiple_girls",
+        "1boy", "2boys", "3boys", "multiple_boys",
+        "solo", "duo", "couple",
+        "standing", "sitting", "kneeling", "lying", "squatting",
+        "leaning_forward", "leaning_back", "leaning_to_the_side",
+        "bent_over", "on_all_fours", "on_back", "on_stomach",
+        "looking_at_viewer", "looking_away", "looking_back",
+        "looking_up", "looking_down",
+        "smile", "blush", "frown", "angry", "surprised",
+        "open_mouth", "closed_mouth", "parted_lips",
+        "long_hair", "short_hair", "medium_hair",
+        "blonde_hair", "brown_hair", "black_hair", "white_hair",
+        "blue_hair", "red_hair", "pink_hair", "silver_hair",
+        "blue_eyes", "brown_eyes", "green_eyes", "red_eyes",
+        "highres", "absurdres", "masterpiece", "best_quality",
+    }
+
+    def _seeds_have_context(self, seeds: list[str]) -> bool:
+        """Return True if seeds contain at least one archetype, setting, or act tag."""
+        for seed in seeds:
+            if seed in self._CONTEXT_FREE_TAGS:
+                continue
+            # Any tag not in the context-free set is considered contextual
+            return True
+        return False
+
     def _build_enrichment_system_prompt(
         self, creativity: str, seed_tags: list[str]
     ) -> str:
         """Build a vocabulary-grounded system prompt for enrichment mode.
 
-        The seeds are treated as the user description for vocabulary lookup —
-        the relevant-tags section surfaces tags matching seed tokens.
+        When seeds are thin (only universal/pose tags), the prompt explicitly
+        asks the LLM to invent a plausible scene rather than just expand.
         """
         if creativity not in self._VALID_CREATIVITIES:
             creativity = self.DEFAULT_CREATIVITY
@@ -1449,17 +1946,32 @@ Now output ONLY the comma-separated tags for the user's description."""
         )
         mode_rules = self._MODE_EXTRA_RULES.get(creativity, "")
 
-        return f"""You are a Danbooru-style tag enricher. The user gives you a list of seed
-tags describing a scene. Your job is to ADD more tags that plausibly belong
-in the same scene — things like clothing, atmosphere, lighting, expressions,
-body language, objects, and style cues.
+        thin_seeds = not self._seeds_have_context(seed_tags)
+
+        if thin_seeds:
+            task_instruction = (
+                "The user has given you only basic pose/character tags with no scene context.\n"
+                "Your job is to INVENT a plausible, visually rich scene around these tags.\n"
+                "Add: clothing, hair details, expression, setting, lighting, atmosphere,\n"
+                "     objects, style cues, and any other tags that make the image vivid.\n"
+                "Be creative and specific — generic tags like 'outdoors' are fine but also\n"
+                "add concrete details like 'cherry_blossoms', 'school_uniform', 'sunset', etc."
+            )
+        else:
+            task_instruction = (
+                "Your job is to ADD more tags that plausibly belong in the same scene —\n"
+                "things like clothing, atmosphere, lighting, expressions, body language,\n"
+                "objects, and style cues."
+            )
+
+        return f"""You are a Danbooru-style tag enricher. The user gives you a list of seed tags.
+{task_instruction}
 
 CRITICAL RULES:
 - Output ONLY the NEW tags (comma-separated). Do NOT repeat any seed tag.
 - Do NOT write <think> or reasoning blocks. Output tags immediately.
 - Use lowercase with underscores for spaces (Danbooru format).
-- Only add tags that are plausible given the seeds. Do NOT invent new characters,
-  franchises, or contradict the existing tags.
+- Do NOT invent new characters, franchises, or contradict the existing tags.
 - Prefer common tags from the vocabulary below.
 - Output 15-30 additional tags.
 {mode_rules}
@@ -1468,7 +1980,7 @@ AVAILABLE VOCABULARY (most common Danbooru tags — prefer these):
 {vocab}
 
 OUTPUT FORMAT (example):
-swimsuit, bikini, sand, ocean, sky, smile, sunlight
+school_uniform, pleated_skirt, cherry_blossoms, smile, outdoors, day, wind
 
 Now output ONLY the comma-separated ADDITIONAL tags that complement the user's seeds."""
 
@@ -1518,12 +2030,12 @@ Now output ONLY the comma-separated ADDITIONAL tags that complement the user's s
             )
 
         mode_options = {
-            "safe":     {"base_temp": 0.55, "num_predict": 400, "target_tags": 35,
-                         "top_p": 0.92, "min_new_accept": 8, "max_attempts": 3},
-            "creative": {"base_temp": 0.70, "num_predict": 600, "target_tags": 45,
-                         "top_p": 0.95, "min_new_accept": 12, "max_attempts": 3},
-            "mature":   {"base_temp": 1.05, "num_predict": 700, "target_tags": 50,
-                         "top_p": 0.98, "min_new_accept": 15, "max_attempts": 3},
+            "safe":     {"base_temp": 0.55, "num_predict": 500, "target_tags": 35,
+                         "top_p": 0.92, "min_new_accept": 15, "max_attempts": 3},
+            "creative": {"base_temp": 0.70, "num_predict": 700, "target_tags": 50,
+                         "top_p": 0.95, "min_new_accept": 20, "max_attempts": 3},
+            "mature":   {"base_temp": 0.90, "num_predict": 800, "target_tags": 50,
+                         "top_p": 0.97, "min_new_accept": 20, "max_attempts": 3},
         }
         opts = mode_options[creativity]
         target_tags = opts["target_tags"]
@@ -1585,6 +2097,7 @@ Now output ONLY the comma-separated ADDITIONAL tags that complement the user's s
                     combined, creativity, target_tags, pseudo_desc,
                     injected_tags=seeds_set,
                     skip_relevance_gate=True,
+                    seed_tags=seeds,
                 )
                 produced_new = [t for t in final_tags if t not in seeds_set]
 
@@ -1612,6 +2125,7 @@ Now output ONLY the comma-separated ADDITIONAL tags that complement the user's s
             combined, creativity, target_tags, pseudo_desc,
             injected_tags=set(seeds),
             skip_relevance_gate=True,
+            seed_tags=seeds,
         )
 
         # Rescue path — if nothing new survived, fall back to concept/act
@@ -1627,10 +2141,19 @@ Now output ONLY the comma-separated ADDITIONAL tags that complement the user's s
                         for tag in _ACT_EXPANSIONS.get(token, []):
                             if self.tag_index.is_valid(tag) and tag not in rescue:
                                 rescue.append(tag)
+            # For thin seeds, also pull top tags from relevant categories
+            if not self._seeds_have_context(seeds):
+                cats = self._VOCAB_CATEGORIES_BY_MODE.get(creativity, ["character", "clothing", "setting", "action"])
+                cat_tags = self.tag_index.top_by_category(n=6, categories=cats, exclude=set(rescue))
+                for cat_list in cat_tags.values():
+                    for tag in cat_list:
+                        if tag not in rescue:
+                            rescue.append(tag)
             final_tags = self._post_process_tags(
                 rescue, creativity, target_tags, pseudo_desc,
                 injected_tags=set(rescue),
                 skip_relevance_gate=True,
+                seed_tags=seeds,
             )
 
         return DescriptionTagResult(

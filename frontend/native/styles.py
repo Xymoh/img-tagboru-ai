@@ -126,11 +126,18 @@ def build_stylesheet() -> str:
             color: #ffffff;
             font-family: "Segoe UI", Arial, sans-serif;
         }
+        QSplitter::handle {
+            background-color: #333;
+            border-radius: 2px;
+        }
+        QSplitter::handle:hover {
+            background-color: #4da6ff;
+        }
         QGroupBox {
             font-weight: bold;
             border: 2px solid #333;
-            margin-top: 15px;
-            padding-top: 20px;
+            margin-top: 10px;
+            padding-top: 16px;
             border-radius: 8px;
             background-color: #1f1f1f;
         }
@@ -139,7 +146,7 @@ def build_stylesheet() -> str:
             left: 15px;
             padding: 0 8px 0 8px;
             color: #4da6ff;
-            font-size: 13px;
+            font-size: 12px;
         }
         QPushButton {
             background-color: #2b2b2b;
@@ -346,6 +353,20 @@ def build_stylesheet() -> str:
             border-radius: 5px;
             padding: 5px;
             color: #e0e0e0;
+        }
+        QLineEdit {
+            background-color: #0d0d0d;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 5px 28px 5px 8px;
+            color: #e0e0e0;
+            font-size: 11px;
+        }
+        QLineEdit:focus {
+            border: 1px solid #4da6ff;
+        }
+        QLineEdit:placeholder {
+            color: #666;
         }
         QSpinBox, QDoubleSpinBox {
             background-color: #0d0d0d;

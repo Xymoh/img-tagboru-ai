@@ -993,7 +993,9 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
 
     def _on_images_loaded(self, valid_paths: list[Path], skipped: list[str]) -> None:
         self._hide_loading_overlay()
-        self._image_load_worker = None
+        if self._image_load_worker is not None:
+            self._image_load_worker.wait()
+            self._image_load_worker = None
 
         self.results = []
         self._single_results = {}
@@ -2188,6 +2190,10 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         )
         self._tag_worker.finished.connect(self._on_tags_generated)
         self._tag_worker.error.connect(self._on_tag_generation_error)
+        # Use Qt's own thread-finished signal (fires after the OS thread exits)
+        # to schedule cleanup — never destroy a QThread while it's still running.
+        self._tag_worker.finished.connect(self._tag_worker.quit)
+        self._tag_worker.error.connect(self._tag_worker.quit)
         self._tag_worker.start()
 
     def _on_tags_generated(self, result: DescriptionTagResult) -> None:
@@ -2220,14 +2226,18 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
             8000,
         )
         self.generate_from_desc_btn.setEnabled(True)
-        self._tag_worker = None
+        if self._tag_worker is not None:
+            self._tag_worker.wait()
+            self._tag_worker = None
 
     def _on_tag_generation_error(self, error_msg: str) -> None:
         self.desc_tags_display.setPlainText(f"⚠️ Error:\n\n{error_msg}")
         self.statusbar.showMessage("Tag generation failed.", 5000)
         self.generate_from_desc_btn.setEnabled(True)
         self._copy_tags_btn.setEnabled(False)
-        self._tag_worker = None
+        if self._tag_worker is not None:
+            self._tag_worker.wait()
+            self._tag_worker = None
 
     def _copy_description_tags(self) -> None:
         if not hasattr(self, '_last_description_tags') or not self._last_description_tags:
