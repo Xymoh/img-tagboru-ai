@@ -41,10 +41,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: img-tagger-windows
-          path: dist/img-tagger.exe
+          path: dist/Img-Tagboru.exe
 
       - name: Upload GitHub Release asset
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/img-tagger.exe
+          files: dist/Img-Tagboru.exe
