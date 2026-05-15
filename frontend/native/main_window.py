@@ -51,8 +51,9 @@ from frontend.native.workers import DescriptionTagWorker, ImageLoadWorker, Model
 class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Img-Tagboru v1.3.1")
-        self.resize(1400, 300)
+        self.setWindowTitle("Img-Tagboru v1.3.2")
+        self.resize(1500, 920)
+        self.setMinimumSize(1200, 720)
         self.setAcceptDrops(True)
 
         self.pending_paths: list[Path] = []
@@ -82,8 +83,8 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         root = QtWidgets.QWidget()
         self.setCentralWidget(root)
         root_layout = QtWidgets.QVBoxLayout(root)
-        root_layout.setSpacing(10)
-        root_layout.setContentsMargins(10, 10, 10, 10)
+        root_layout.setSpacing(4)
+        root_layout.setContentsMargins(6, 6, 6, 6)
 
         self.setStyleSheet(build_stylesheet())
 
@@ -93,15 +94,30 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
 
         # ===== TAB 1: Batch Tagger =====
         batch_tab = QtWidgets.QWidget()
-        batch_layout = QtWidgets.QHBoxLayout(batch_tab)
-        batch_layout.setSpacing(5)
+        batch_tab_layout = QtWidgets.QVBoxLayout(batch_tab)
+        batch_tab_layout.setContentsMargins(4, 4, 4, 4)
+        batch_tab_layout.setSpacing(0)
 
-        left_panel = QtWidgets.QVBoxLayout()
-        left_panel.setSpacing(5)
-        right_panel = QtWidgets.QVBoxLayout()
-        right_panel.setSpacing(5)
-        batch_layout.addLayout(left_panel, 1)
-        batch_layout.addLayout(right_panel, 2)
+        # Outer horizontal splitter — user can drag to resize left vs right
+        batch_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        batch_splitter.setChildrenCollapsible(False)
+        batch_splitter.setHandleWidth(6)
+        batch_tab_layout.addWidget(batch_splitter)
+
+        # Vertical splitters for each side — let user balance inner groups
+        left_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
+        left_splitter.setChildrenCollapsible(False)
+        left_splitter.setHandleWidth(6)
+        right_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
+        right_splitter.setChildrenCollapsible(False)
+        right_splitter.setHandleWidth(6)
+
+        batch_splitter.addWidget(left_splitter)
+        batch_splitter.addWidget(right_splitter)
+        batch_splitter.setStretchFactor(0, 2)
+        batch_splitter.setStretchFactor(1, 3)
+        # Initial size hint: ~40% / 60%
+        batch_splitter.setSizes([600, 900])
 
         input_group = QtWidgets.QGroupBox("📁 Input - Load Images")
         input_layout = QtWidgets.QVBoxLayout(input_group)
@@ -152,16 +168,6 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         tag_row.addStretch(1)
         input_layout.addLayout(tag_row)
 
-        drop_hint = QtWidgets.QLabel(
-            "💡 Tip: Drag & drop images/folders here, or press Ctrl+V to paste from clipboard"
-        )
-        drop_hint.setAlignment(QtCore.Qt.AlignCenter)
-        drop_hint.setStyleSheet(
-            "color: #9ecbff; font-size: 10px; margin: 8px; padding: 8px; "
-            "background-color: #0d0d0d; border: 1px dashed #444; border-radius: 5px;"
-        )
-        input_layout.addWidget(drop_hint)
-
         list_label = QtWidgets.QLabel("📋 Loaded Images:")
         list_label.setStyleSheet("color: #4da6ff; font-weight: bold; font-size: 11px;")
         input_layout.addWidget(list_label)
@@ -170,27 +176,65 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         self.result_list.currentRowChanged.connect(self.show_result)
         self.result_list.currentRowChanged.connect(self._update_tag_selected_button)
         self.result_list.setToolTip("Click an image to preview and edit its tags")
+        # Embed the drag-and-drop hint as a placeholder inside the list
+        # (visible only when empty, disappears once images are loaded)
+        self._list_placeholder = QtWidgets.QLabel(
+            "💡 Drag & drop images or folders here\n"
+            "or use the buttons above\n"
+            "or press Ctrl+V to paste",
+            self.result_list,
+        )
+        self._list_placeholder.setAlignment(QtCore.Qt.AlignCenter)
+        self._list_placeholder.setStyleSheet(
+            "color: #555; font-size: 10px; background: transparent;"
+        )
+        self._list_placeholder.setWordWrap(True)
+        self._list_placeholder.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
         input_layout.addWidget(self.result_list, 1)
 
-        self.pending_label = QtWidgets.QLabel(
-            "ℹ️ No images loaded. Use buttons above or drag & drop files."
-        )
+        self.pending_label = QtWidgets.QLabel("")
         self.pending_label.setObjectName("alertLabel")
         self.pending_label.setWordWrap(True)
+        self.pending_label.setVisible(False)
         input_layout.addWidget(self.pending_label)
-        left_panel.addWidget(input_group, 1)
+        left_splitter.addWidget(input_group)
 
         preview_group = QtWidgets.QGroupBox("🖼️ Preview")
         preview_layout = QtWidgets.QVBoxLayout(preview_group)
-        self.image_label = QtWidgets.QLabel(alignment=QtCore.Qt.AlignCenter)
-        self.image_label.setMinimumHeight(250)
-        self.image_label.setMaximumHeight(350)
+        preview_layout.setContentsMargins(6, 6, 6, 6)
+
+        # Label that re-scales its pixmap whenever its own size changes
+        # (handles splitter drags as well as window resizes)
+        class _PreviewLabel(QtWidgets.QLabel):
+            def __init__(self, parent_win, **kwargs):
+                super().__init__(**kwargs)
+                self._win = parent_win
+
+            def resizeEvent(self, event):
+                super().resizeEvent(event)
+                if self._win._preview_pixmap is not None and not self.size().isEmpty():
+                    self.setPixmap(
+                        self._win._preview_pixmap.scaled(
+                            self.size(),
+                            QtCore.Qt.KeepAspectRatio,
+                            QtCore.Qt.SmoothTransformation,
+                        )
+                    )
+
+        self._preview_pixmap: QtGui.QPixmap | None = None
+        self.image_label = _PreviewLabel(self, alignment=QtCore.Qt.AlignCenter)
+        self.image_label.setMinimumHeight(200)
         self.image_label.setStyleSheet(
             "background: #0d0d0d; border: 2px solid #333; border-radius: 8px; padding: 2px;"
         )
         self.image_label.setToolTip("Preview of selected image")
+        self.image_label.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding
+        )
         preview_layout.addWidget(self.image_label)
-        left_panel.addWidget(preview_group, 1)
+        left_splitter.addWidget(preview_group)
+        left_splitter.setStretchFactor(0, 1)
+        left_splitter.setStretchFactor(1, 1)
 
         settings_group = QtWidgets.QGroupBox("⚙️ Tagging Settings")
         form = QtWidgets.QFormLayout(settings_group)
@@ -258,9 +302,56 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         self.whitelist.setFixedHeight(52)
         self.whitelist.setToolTip("Only include these tags if specified (comma-separated)")
 
-        form.addRow(QtWidgets.QLabel("General threshold:"), self.general_threshold)
-        form.addRow(QtWidgets.QLabel("Character threshold:"), self.character_threshold)
-        form.addRow(QtWidgets.QLabel("Max tags:"), self.max_tags)
+        self.caption_prefix = QtWidgets.QLineEdit()
+        self.caption_prefix.setPlaceholderText("e.g. masterpiece, best_quality")
+        self.caption_prefix.setToolTip("Tags prepended before every caption (e.g. quality booster tags)")
+        self.caption_prefix.setClearButtonEnabled(True)
+
+        self.caption_postfix = QtWidgets.QLineEdit()
+        self.caption_postfix.setPlaceholderText("e.g. from_above, dutch_angle")
+        self.caption_postfix.setToolTip("Tags appended after every caption (e.g. camera angle, style tags)")
+        self.caption_postfix.setClearButtonEnabled(True)
+
+        self.initial_caption = QtWidgets.QLineEdit()
+        self.initial_caption.setPlaceholderText("e.g. 1girl, solo")
+        self.initial_caption.setToolTip("Trigger words used as the caption when no tags are generated yet")
+        self.initial_caption.setClearButtonEnabled(True)
+
+        # ── Thresholds + max tags in one compact row ─────────────────────────
+        thresholds_widget = QtWidgets.QWidget()
+        thresholds_row = QtWidgets.QHBoxLayout(thresholds_widget)
+        thresholds_row.setContentsMargins(0, 0, 0, 0)
+        thresholds_row.setSpacing(10)
+
+        gen_col = QtWidgets.QVBoxLayout()
+        gen_col.setSpacing(2)
+        gen_lbl = QtWidgets.QLabel("🟢 General")
+        gen_lbl.setStyleSheet("color: #66ff66; font-size: 10px; font-weight: bold;")
+        gen_lbl.setAlignment(QtCore.Qt.AlignCenter)
+        gen_col.addWidget(gen_lbl)
+        gen_col.addWidget(self.general_threshold)
+        thresholds_row.addLayout(gen_col, 1)
+
+        char_col = QtWidgets.QVBoxLayout()
+        char_col.setSpacing(2)
+        char_lbl = QtWidgets.QLabel("🩷 Character")
+        char_lbl.setStyleSheet("color: #ff66a3; font-size: 10px; font-weight: bold;")
+        char_lbl.setAlignment(QtCore.Qt.AlignCenter)
+        char_col.addWidget(char_lbl)
+        char_col.addWidget(self.character_threshold)
+        thresholds_row.addLayout(char_col, 1)
+
+        maxtags_col = QtWidgets.QVBoxLayout()
+        maxtags_col.setSpacing(2)
+        maxtags_lbl = QtWidgets.QLabel("🟡 Max tags")
+        maxtags_lbl.setStyleSheet("color: #ffcc66; font-size: 10px; font-weight: bold;")
+        maxtags_lbl.setAlignment(QtCore.Qt.AlignCenter)
+        maxtags_col.addWidget(maxtags_lbl)
+        maxtags_col.addWidget(self.max_tags)
+        thresholds_row.addLayout(maxtags_col, 1)
+
+        form.addRow(thresholds_widget)
+
         form.addRow(QtWidgets.QLabel("Sort by:"), self.sort_mode)
         form.addRow(QtWidgets.QLabel("Categories:"), category_widget)
         form.addRow(QtWidgets.QLabel("Blacklist:"), self.blacklist)
@@ -268,8 +359,11 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         form.addRow(self.normalize_pixels)
         form.addRow(self.use_mcut)
         form.addRow(self.include_scores)
-        right_panel.addWidget(settings_group)
+        right_splitter.addWidget(settings_group)
 
+        table_group = QtWidgets.QGroupBox("🏷️ Tags")
+        table_layout = QtWidgets.QVBoxLayout(table_group)
+        table_layout.setContentsMargins(8, 8, 8, 8)
         self.table = QtWidgets.QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(
             ["✓ Include", "Rank", "Tag", "Confidence", "Category"]
@@ -283,10 +377,66 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         self.table.setColumnWidth(0, 70)
         self.table.setColumnWidth(2, 350)
         self.table.setColumnWidth(4, 90)
-        right_panel.addWidget(self.table, 3)
+        table_layout.addWidget(self.table)
+        right_splitter.addWidget(table_group)
 
         caption_group = QtWidgets.QGroupBox("📝 Generated Caption")
         caption_layout = QtWidgets.QVBoxLayout(caption_group)
+        caption_layout.setSpacing(8)
+
+        # ── Caption Wrapping collapsible section ──────────────────────────────
+        self._wrapping_group = QtWidgets.QGroupBox("🔧 Caption Wrapping")
+        self._wrapping_group.setCheckable(True)
+        self._wrapping_group.setChecked(False)   # collapsed by default
+        self._wrapping_group.setToolTip(
+            "Wrap every exported caption with fixed prefix/postfix tags,\n"
+            "and set trigger words used when no tags are generated."
+        )
+        wrapping_form = QtWidgets.QFormLayout(self._wrapping_group)
+        wrapping_form.setSpacing(6)
+        wrapping_form.setContentsMargins(10, 6, 10, 8)
+
+        prefix_lbl = QtWidgets.QLabel("🟢 Prefix tags:")
+        prefix_lbl.setToolTip("Added at the START of every caption")
+        prefix_lbl.setStyleSheet("color: #66ff66; font-size: 11px;")
+        wrapping_form.addRow(prefix_lbl, self.caption_prefix)
+
+        postfix_lbl = QtWidgets.QLabel("🟠 Postfix tags:")
+        postfix_lbl.setToolTip("Added at the END of every caption")
+        postfix_lbl.setStyleSheet("color: #ff9966; font-size: 11px;")
+        wrapping_form.addRow(postfix_lbl, self.caption_postfix)
+
+        trigger_lbl = QtWidgets.QLabel("🔵 Trigger words:")
+        trigger_lbl.setToolTip("Used as the caption when no tags have been generated yet")
+        trigger_lbl.setStyleSheet("color: #66ccff; font-size: 11px;")
+        wrapping_form.addRow(trigger_lbl, self.initial_caption)
+
+        # Live preview bar — shows the assembled caption structure
+        self.affix_preview_label = QtWidgets.QLabel()
+        self.affix_preview_label.setStyleSheet(
+            "color: #9ecbff; font-size: 10px; padding: 4px 6px; "
+            "background: #0d0d0d; border: 1px solid #333; border-radius: 4px;"
+        )
+        self.affix_preview_label.setWordWrap(True)
+        self.affix_preview_label.setVisible(False)
+        wrapping_form.addRow(self.affix_preview_label)
+
+        caption_layout.addWidget(self._wrapping_group)
+
+        # Collapse/expand the inner content when the checkbox is toggled
+        def _toggle_wrapping(checked: bool) -> None:
+            self._wrapping_group.setFlat(not checked)
+            for i in range(wrapping_form.rowCount()):
+                item_label = wrapping_form.itemAt(i, QtWidgets.QFormLayout.LabelRole)
+                item_field = wrapping_form.itemAt(i, QtWidgets.QFormLayout.FieldRole)
+                item_span  = wrapping_form.itemAt(i, QtWidgets.QFormLayout.SpanningRole)
+                for item in (item_label, item_field, item_span):
+                    if item and item.widget():
+                        item.widget().setVisible(checked)
+        self._wrapping_group.toggled.connect(_toggle_wrapping)
+        # Apply initial collapsed state
+        _toggle_wrapping(False)
+
         self.caption_edit = QtWidgets.QPlainTextEdit()
         self.caption_edit.setPlaceholderText(
             "Tags will appear here as comma-separated values...\n"
@@ -394,13 +544,71 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         toolbar_row.addStretch(1)
 
         caption_layout.addLayout(toolbar_row)
-        right_panel.addWidget(caption_group, 2)
+        right_splitter.addWidget(caption_group)
+        right_splitter.setStretchFactor(0, 2)  # settings
+        right_splitter.setStretchFactor(1, 4)  # tags table
+        right_splitter.setStretchFactor(2, 3)  # caption
+
+        self.caption_prefix.textChanged.connect(self._update_affix_preview)
+        self.caption_postfix.textChanged.connect(self._update_affix_preview)
+        self.initial_caption.textChanged.connect(self._update_affix_preview)
 
         self.tabs.addTab(batch_tab, "Batch Tagger")
 
         # ===== TAB 2: Description Tagger =====
         desc_tab = QtWidgets.QWidget()
-        desc_layout = QtWidgets.QVBoxLayout(desc_tab)
+        desc_tab_outer = QtWidgets.QVBoxLayout(desc_tab)
+        desc_tab_outer.setContentsMargins(4, 4, 4, 4)
+        desc_tab_outer.setSpacing(0)
+
+        # Two-column splitter: left = config, right = input + output
+        desc_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        desc_splitter.setChildrenCollapsible(False)
+        desc_splitter.setHandleWidth(6)
+        desc_tab_outer.addWidget(desc_splitter)
+
+        desc_left_widget = QtWidgets.QWidget()
+        desc_left_layout = QtWidgets.QVBoxLayout(desc_left_widget)
+        desc_left_layout.setContentsMargins(0, 0, 0, 0)
+        desc_left_layout.setSpacing(8)
+
+        desc_right_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
+        desc_right_splitter.setChildrenCollapsible(False)
+        desc_right_splitter.setHandleWidth(6)
+
+        desc_splitter.addWidget(desc_left_widget)
+        desc_splitter.addWidget(desc_right_splitter)
+        desc_splitter.setStretchFactor(0, 2)
+        desc_splitter.setStretchFactor(1, 3)
+        desc_splitter.setSizes([560, 900])
+
+        # `desc_layout` alias kept so existing `desc_layout.addWidget(...)` calls
+        # below continue to target the left config column.
+        desc_layout = desc_left_layout
+
+        # --- Input mode toggle (description vs seed tags) — shown first ---
+        input_mode_group = QtWidgets.QGroupBox("📥 Input Mode")
+        input_mode_layout = QtWidgets.QHBoxLayout(input_mode_group)
+        input_mode_layout.setSpacing(6)
+
+        self.desc_input_mode = QtWidgets.QComboBox()
+        self.desc_input_mode.setStyleSheet(
+            "background-color: #1a1a1a; color: #ffffff; padding: 5px;"
+        )
+        self.desc_input_mode.addItem("📝 From Description", "description")
+        self.desc_input_mode.addItem("🏷️ From Seed Tags", "seed_tags")
+        self.desc_input_mode.setCurrentIndex(0)
+        self.desc_input_mode.currentIndexChanged.connect(self._on_input_mode_changed)
+        input_mode_layout.addWidget(self.desc_input_mode)
+
+        input_mode_hint = QtWidgets.QLabel(
+            "<b>Description:</b> write a scene in English → AI generates tags<br>"
+            "<b>Seed Tags:</b> paste existing tags → AI adds complementary tags"
+        )
+        input_mode_hint.setStyleSheet("color: #9ecbff; font-size: 10px; padding: 2px;")
+        input_mode_hint.setWordWrap(True)
+        input_mode_layout.addWidget(input_mode_hint, 1)
+        desc_layout.addWidget(input_mode_group)
 
         model_group = QtWidgets.QGroupBox("🤖 LLM Model Selection")
         model_layout = QtWidgets.QVBoxLayout(model_group)
@@ -490,15 +698,18 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
 
         desc_layout.addWidget(threshold_group)
 
-        input_desc_group = QtWidgets.QGroupBox("✍️ Description Input")
-        input_desc_layout = QtWidgets.QVBoxLayout(input_desc_group)
+        # Add a stretch at the bottom of the left config column
+        desc_left_layout.addStretch(1)
+
+        self.input_desc_group = QtWidgets.QGroupBox("✍️ Input")
+        input_desc_layout = QtWidgets.QVBoxLayout(self.input_desc_group)
         input_desc_layout.setSpacing(8)
 
-        desc_hint = QtWidgets.QLabel(
+        self.desc_hint_label = QtWidgets.QLabel(
             "Describe what you want to see, and AI will generate Danbooru tags:"
         )
-        desc_hint.setStyleSheet("color: #4da6ff; font-size: 12px; font-weight: bold;")
-        input_desc_layout.addWidget(desc_hint)
+        self.desc_hint_label.setStyleSheet("color: #4da6ff; font-size: 12px; font-weight: bold;")
+        input_desc_layout.addWidget(self.desc_hint_label)
 
         self.description_input = QtWidgets.QPlainTextEdit()
         self.description_input.setPlaceholderText(
@@ -508,13 +719,12 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
             "• Beautiful landscape with mountains and sunset in fantasy art style\n"
             "• Character with animal ears, tail, and wearing school uniform"
         )
-        self.description_input.setMinimumHeight(160)
-        self.description_input.setMaximumHeight(200)
+        self.description_input.setMinimumHeight(140)
         self.description_input.setStyleSheet(
             "background-color: #0d0d0d; color: #ffffff; border: 1px solid #444; "
             "border-radius: 5px; padding: 8px;"
         )
-        input_desc_layout.addWidget(self.description_input)
+        input_desc_layout.addWidget(self.description_input, 1)
 
         self.generate_from_desc_btn = QtWidgets.QPushButton("✨ Generate Tags from Description")
         self.generate_from_desc_btn.setObjectName("tagBtn")
@@ -536,7 +746,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         self.generate_from_desc_btn.clicked.connect(self._generate_tags_from_description)
         input_desc_layout.addWidget(self.generate_from_desc_btn)
 
-        desc_layout.addWidget(input_desc_group)
+        desc_right_splitter.addWidget(self.input_desc_group)
 
         tags_group = QtWidgets.QGroupBox("🏷️ Generated Tags")
         tags_layout = QtWidgets.QVBoxLayout(tags_group)
@@ -550,9 +760,8 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
             "background-color: #0d0d0d; color: #66ff66; font-family: monospace; "
             "font-size: 11px; border-radius: 5px; padding: 8px;"
         )
-        self.desc_tags_display.setMinimumHeight(100)
-        self.desc_tags_display.setMaximumHeight(160)
-        tags_layout.addWidget(self.desc_tags_display)
+        self.desc_tags_display.setMinimumHeight(80)
+        tags_layout.addWidget(self.desc_tags_display, 1)
 
         copy_tags_btn = QtWidgets.QPushButton("📋 Copy Tags to Clipboard")
         copy_tags_btn.setToolTip("Copy generated tags as comma-separated list")
@@ -564,13 +773,15 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         self._copy_tags_btn = copy_tags_btn
         tags_layout.addWidget(copy_tags_btn)
 
-        desc_layout.addWidget(tags_group)
+        desc_right_splitter.addWidget(tags_group)
+        desc_right_splitter.setStretchFactor(0, 3)  # input
+        desc_right_splitter.setStretchFactor(1, 2)  # generated tags
 
         self.tabs.addTab(desc_tab, "Description Tagger")
 
         # --- Status bar --------------------------------------------------------
         self.statusbar = self.statusBar()
-        self.statusbar.showMessage("Ready. Load images to start tagging.")
+        self.statusbar.showMessage("Ready.")
 
         self.help_btn = QtWidgets.QPushButton("❓ Help")
         self.help_btn.setMaximumHeight(25)
@@ -601,6 +812,9 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
 
         # Setup caption completer
         self._setup_caption_completer()
+
+        # Show the drag-and-drop hint in the empty list on startup
+        QtCore.QTimer.singleShot(0, self._update_list_placeholder)
 
         # --- Drop overlay ------------------------------------------------------
         self._drop_overlay = QtWidgets.QLabel(self)
@@ -694,7 +908,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         QtWidgets.QMessageBox.about(
             self,
             "About Img-Tagboru",
-            "Img-Tagboru v1.3.1\n\n"
+            "Img-Tagboru v1.3.2\n\n"
             "Local Anime Image Tagger\n"
             "WD14-style tagging for anime images and LoRA training.\n\n"
             "Features:\n"
@@ -713,6 +927,22 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         self.export_btn.setEnabled(enabled)
         self.export_beside_btn.setEnabled(enabled)
         self.export_zip_btn.setEnabled(enabled)
+
+    def _update_list_placeholder(self) -> None:
+        """Show the drag-and-drop hint inside the list when it is empty."""
+        empty = self.result_list.count() == 0
+        self._list_placeholder.setVisible(empty)
+        if empty:
+            # Centre the label inside the list viewport
+            vp = self.result_list.viewport()
+            self._list_placeholder.setGeometry(vp.rect())
+        if hasattr(self, "pending_label"):
+            count = self.result_list.count()
+            if count:
+                self.pending_label.setText(f"Loaded {count} image(s).")
+                self.pending_label.setVisible(True)
+            else:
+                self.pending_label.setVisible(False)
 
     def _selected_categories(self) -> set[str]:
         selected: set[str] = set()
@@ -763,7 +993,9 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
 
     def _on_images_loaded(self, valid_paths: list[Path], skipped: list[str]) -> None:
         self._hide_loading_overlay()
-        self._image_load_worker = None
+        if self._image_load_worker is not None:
+            self._image_load_worker.wait()
+            self._image_load_worker = None
 
         self.results = []
         self._single_results = {}
@@ -783,6 +1015,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         for p in self.pending_paths:
             self.result_list.addItem(p.name)
         self.result_list.blockSignals(False)
+        self._update_list_placeholder()
         if self.pending_paths:
             self.result_list.setCurrentRow(0)
             self.show_result(0)
@@ -1456,12 +1689,70 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
             return self._single_results[index]
         return None
 
+    def _strip_affixes(self, text: str) -> str:
+        """Remove prefix and postfix from caption text to recover the base caption."""
+        prefix = self.caption_prefix.text().strip()
+        postfix = self.caption_postfix.text().strip()
+        result = text.strip()
+        if postfix and result.endswith(", " + postfix):
+            result = result[:-(len(", " + postfix))]
+        elif postfix and result == postfix:
+            result = ""
+        if prefix and result.startswith(prefix + ", "):
+            result = result[len(prefix + ", "):]
+        elif prefix and result == prefix:
+            result = ""
+        return result
+
     def _sync_current_result(self) -> None:
         result = self._current_result()
         if result is None:
             return
         result.frame = self._table_to_frame()
-        result.caption = self.caption_edit.toPlainText().strip()
+        result.caption = self._strip_affixes(self.caption_edit.toPlainText())
+
+    def _effective_caption(self, caption: str | None = None) -> str:
+        """Return caption with prefix and postfix applied (or initial caption if empty)."""
+        prefix = self.caption_prefix.text().strip()
+        postfix = self.caption_postfix.text().strip()
+        initial = self.initial_caption.text().strip()
+
+        if caption is None:
+            result = self._current_result()
+            caption = result.caption if result else ""
+
+        base = caption.strip()
+        if not base:
+            base = initial
+
+        parts = [p for p in (prefix, base, postfix) if p]
+        return ", ".join(parts)
+
+    def _update_affix_preview(self) -> None:
+        """Refresh the affix preview label inside the Caption Wrapping group."""
+        prefix = self.caption_prefix.text().strip()
+        postfix = self.caption_postfix.text().strip()
+        initial = self.initial_caption.text().strip()
+
+        parts: list[str] = []
+        if prefix:
+            parts.append(f"<span style='color:#66ff66'><b>[{prefix}]</b></span>")
+        parts.append("<span style='color:#888'>… tags …</span>")
+        if postfix:
+            parts.append(f"<span style='color:#ff9966'><b>[{postfix}]</b></span>")
+
+        preview_html = " → ".join(parts)
+        if initial:
+            preview_html += (
+                f"&nbsp;&nbsp;<span style='color:#aaa'>|</span>&nbsp;&nbsp;"
+                f"<span style='color:#66ccff'>Trigger: <b>{initial}</b></span>"
+            )
+
+        if prefix or postfix or initial:
+            self.affix_preview_label.setText(preview_html)
+            self.affix_preview_label.setVisible(True)
+        else:
+            self.affix_preview_label.setVisible(False)
 
     def show_result(self, index: int) -> None:
         if not (0 <= index < len(self.results)):
@@ -1469,18 +1760,19 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
                 if 0 <= self._active_result_index < len(self.results) and self.table.rowCount() > 0:
                     prev = self.results[self._active_result_index]
                     prev.frame = self._table_to_frame()
-                    prev.caption = self.caption_edit.toPlainText().strip()
+                    prev.caption = self._strip_affixes(self.caption_edit.toPlainText())
                 elif self._active_result_index in self._single_results and self.table.rowCount() > 0:
                     prev = self._single_results[self._active_result_index]
                     prev.frame = self._table_to_frame()
-                    prev.caption = self.caption_edit.toPlainText().strip()
+                    prev.caption = self._strip_affixes(self.caption_edit.toPlainText())
                 result = self._single_results[index]
                 self._active_result_index = index
                 self._set_image(result.image)
                 self._frame_to_table(result.frame)
                 self.caption_edit.blockSignals(True)
-                self.caption_edit.setPlainText(result.caption)
+                self.caption_edit.setPlainText(self._effective_caption(result.caption))
                 self.caption_edit.blockSignals(False)
+                self._update_affix_preview()
                 return
             if 0 <= index < len(self.pending_paths):
                 self._active_result_index = -1
@@ -1489,43 +1781,49 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
                     self._set_image(img)
                 else:
                     self.image_label.clear()
+                    self._preview_pixmap = None
                     self.statusbar.showMessage("Could not preview this image file.", 7000)
                 self.table.setRowCount(0)
                 self.caption_edit.blockSignals(True)
                 self.caption_edit.setPlainText("")
                 self.caption_edit.blockSignals(False)
+                self.affix_preview_label.setVisible(False)
             return
 
         if 0 <= self._active_result_index < len(self.results) and self.table.rowCount() > 0:
             prev = self.results[self._active_result_index]
             prev.frame = self._table_to_frame()
-            prev.caption = self.caption_edit.toPlainText().strip()
+            prev.caption = self._strip_affixes(self.caption_edit.toPlainText())
 
         result = self.results[index]
         self._active_result_index = index
         self._set_image(result.image)
         self._frame_to_table(result.frame)
         self.caption_edit.blockSignals(True)
-        self.caption_edit.setPlainText(result.caption)
+        self.caption_edit.setPlainText(self._effective_caption(result.caption))
         self.caption_edit.blockSignals(False)
+        self._update_affix_preview()
 
     def _set_image(self, pil: Image.Image) -> None:
         self._preview_image = pil
         buf = io.BytesIO()
         pil.save(buf, format="PNG")
-        pixmap = QtGui.QPixmap.fromImage(QtGui.QImage.fromData(buf.getvalue()))
-        self.image_label.setPixmap(
-            pixmap.scaled(
-                self.image_label.size(),
-                QtCore.Qt.KeepAspectRatio,
-                QtCore.Qt.SmoothTransformation,
+        self._preview_pixmap = QtGui.QPixmap.fromImage(QtGui.QImage.fromData(buf.getvalue()))
+        if not self.image_label.size().isEmpty():
+            self.image_label.setPixmap(
+                self._preview_pixmap.scaled(
+                    self.image_label.size(),
+                    QtCore.Qt.KeepAspectRatio,
+                    QtCore.Qt.SmoothTransformation,
+                )
             )
-        )
 
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
         super().resizeEvent(event)
-        if self._preview_image is not None:
-            self._set_image(self._preview_image)
+        # Recentre the list placeholder
+        if hasattr(self, "_list_placeholder") and self._list_placeholder.isVisible():
+            vp = self.result_list.viewport()
+            self._list_placeholder.setGeometry(vp.rect())
         # Keep the drop overlay sized to the central widget
         if hasattr(self, '_drop_overlay') and self._drop_overlay.isVisible():
             rect = self.centralWidget().rect()
@@ -1671,7 +1969,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         old_frame = result.frame
 
         # Current caption tags (preserves user customizations)
-        caption_tags = split_tags(self.caption_edit.toPlainText())
+        caption_tags = split_tags(self._strip_affixes(self.caption_edit.toPlainText()))
         caption_lower = {t.lower() for t in caption_tags}
 
         # Diff include flags: add newly-checked tags, remove newly-unchecked
@@ -1698,7 +1996,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         result.frame = new_frame
         result.caption = ", ".join(caption_tags) if caption_tags else ""
         self.caption_edit.blockSignals(True)
-        self.caption_edit.setPlainText(result.caption)
+        self.caption_edit.setPlainText(self._effective_caption(result.caption))
         self.caption_edit.blockSignals(False)
 
     def apply_caption_text(self) -> None:
@@ -1713,7 +2011,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         result = self._current_result()
         if result is None:
             return
-        caption_text = self.caption_edit.toPlainText().strip()
+        caption_text = self._strip_affixes(self.caption_edit.toPlainText())
         result.caption = caption_text
         tags = split_tags(caption_text)
         tag_order = {tag.lower(): idx + 1 for idx, tag in enumerate(tags)}
@@ -1802,10 +2100,45 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         except Exception:
             pass  # Tagger not initialized yet — fine
 
+    def _on_input_mode_changed(self) -> None:
+        """Update UI labels and placeholders when the description/seed-tags mode changes."""
+        mode = self.desc_input_mode.currentData()
+        if mode == "seed_tags":
+            self.input_desc_group.setTitle("🏷️ Seed Tags Input")
+            self.desc_hint_label.setText(
+                "Paste Danbooru tags and AI will add complementary tags:"
+            )
+            self.description_input.setPlaceholderText(
+                "Examples:\n"
+                "• 1girl, beach, volleyball\n"
+                "• 1girl, witch_hat, forest\n"
+                "• 1girl, 1boy, bedroom"
+            )
+            self.generate_from_desc_btn.setText("✨ Enrich Seed Tags")
+            self.generate_from_desc_btn.setToolTip(
+                "AI will analyze your seed tags and generate complementary Danbooru tags"
+            )
+        else:
+            self.input_desc_group.setTitle("✍️ Description Input")
+            self.desc_hint_label.setText(
+                "Describe what you want to see, and AI will generate Danbooru tags:"
+            )
+            self.description_input.setPlaceholderText(
+                "Examples:\n"
+                "• A girl with long black hair and red eyes, wearing a maid outfit\n"
+                "• Anime boy with blue eyes and blonde hair, holding a sword\n"
+                "• Beautiful landscape with mountains and sunset in fantasy art style\n"
+                "• Character with animal ears, tail, and wearing school uniform"
+            )
+            self.generate_from_desc_btn.setText("✨ Generate Tags from Description")
+            self.generate_from_desc_btn.setToolTip(
+                "AI will analyze your description and generate matching Danbooru tags"
+            )
+
     def _generate_tags_from_description(self) -> None:
         description = self.description_input.toPlainText().strip()
         if not description:
-            self.statusbar.showMessage("Description is empty. Please enter a description.", 5000)
+            self.statusbar.showMessage("Input is empty. Please enter a description or seed tags.", 5000)
             return
 
         selected_model = self.model_selector.currentData()
@@ -1819,30 +2152,48 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         selected_creativity = self.creativity_selector.currentData() or "creative"
         self._last_creativity_mode = selected_creativity
 
-        tips = [
-            "💡 Tip: Include a subject, action, and setting for best results",
-            "💡 Tip: Re-running the same prompt can produce different (better) tags",
-            "💡 Tip: Creative mode adds style/lighting tags — try it for richer atmosphere",
-            "💡 Tip: If tags miss a key element, name it explicitly in your description",
-            "💡 Tip: Concrete visual details beat abstract concepts",
-        ]
+        enrich_mode = self.desc_input_mode.currentData() == "seed_tags"
+
+        if enrich_mode:
+            tips = [
+                "💡 Tip: Add more seed tags for richer expansion results",
+                "💡 Tip: Try different creativity modes for varied complementary tags",
+                "💡 Tip: Creative mode adds style/lighting tags — try it for richer atmosphere",
+                "💡 Tip: The AI preserves your seed tags and only adds new ones",
+                "💡 Tip: Re-run for different variations",
+            ]
+        else:
+            tips = [
+                "💡 Tip: Include a subject, action, and setting for best results",
+                "💡 Tip: Re-running the same prompt can produce different (better) tags",
+                "💡 Tip: Creative mode adds style/lighting tags — try it for richer atmosphere",
+                "💡 Tip: If tags miss a key element, name it explicitly in your description",
+                "💡 Tip: Concrete visual details beat abstract concepts",
+            ]
         tip = random.choice(tips)
+
         self.generate_from_desc_btn.setEnabled(False)
+        action_label = "Enriching" if enrich_mode else "Generating"
         self.desc_tags_display.setPlainText(
-            "⏳ Generating tags... (this may take a while)\n\n"
+            f"⏳ {action_label} tags... (this may take a while)\n\n"
             f"Mode: {selected_creativity.capitalize()}\n"
             f"{tip}"
         )
         self.statusbar.showMessage(
-            f"Connecting to Ollama and generating tags in {selected_creativity} mode..."
+            f"Connecting to Ollama and {action_label.lower()} tags in {selected_creativity} mode..."
         )
 
         threshold = self.post_count_threshold.value()
         self._tag_worker = DescriptionTagWorker(
             description, selected_model, selected_creativity, threshold,
+            enrich_mode=enrich_mode,
         )
         self._tag_worker.finished.connect(self._on_tags_generated)
         self._tag_worker.error.connect(self._on_tag_generation_error)
+        # Use Qt's own thread-finished signal (fires after the OS thread exits)
+        # to schedule cleanup — never destroy a QThread while it's still running.
+        self._tag_worker.finished.connect(self._tag_worker.quit)
+        self._tag_worker.error.connect(self._tag_worker.quit)
         self._tag_worker.start()
 
     def _on_tags_generated(self, result: DescriptionTagResult) -> None:
@@ -1875,14 +2226,18 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
             8000,
         )
         self.generate_from_desc_btn.setEnabled(True)
-        self._tag_worker = None
+        if self._tag_worker is not None:
+            self._tag_worker.wait()
+            self._tag_worker = None
 
     def _on_tag_generation_error(self, error_msg: str) -> None:
         self.desc_tags_display.setPlainText(f"⚠️ Error:\n\n{error_msg}")
         self.statusbar.showMessage("Tag generation failed.", 5000)
         self.generate_from_desc_btn.setEnabled(True)
         self._copy_tags_btn.setEnabled(False)
-        self._tag_worker = None
+        if self._tag_worker is not None:
+            self._tag_worker.wait()
+            self._tag_worker = None
 
     def _copy_description_tags(self) -> None:
         if not hasattr(self, '_last_description_tags') or not self._last_description_tags:
@@ -1978,6 +2333,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         for p in self.pending_paths:
             self.result_list.addItem(p.name)
         self.result_list.blockSignals(False)
+        self._update_list_placeholder()
         if self.pending_paths:
             self.result_list.setCurrentRow(0)
             self.show_result(0)
@@ -1988,11 +2344,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
 
     def _copy_as_prompt(self) -> None:
         """Copy the current caption as a ComfyUI-ready prompt (underscores->spaces)."""
-        text = self.caption_edit.toPlainText().strip()
-        if not text:
-            result = self._current_result()
-            if result is not None:
-                text = result.caption
+        text = self._effective_caption()
         if not text:
             self.statusbar.showMessage("No caption to copy.", 3000)
             return
@@ -2136,7 +2488,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         )
         if not path:
             return
-        Path(path).write_text(result.caption, encoding="utf-8")
+        Path(path).write_text(self._effective_caption(result.caption), encoding="utf-8")
         self.statusbar.showMessage(f"Saved caption to {path}")
 
     def export_beside_source(self) -> None:
@@ -2150,7 +2502,7 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
                 continue
             txt_path = r.path.with_suffix(".txt")
             try:
-                txt_path.write_text(r.caption, encoding="utf-8")
+                txt_path.write_text(self._effective_caption(r.caption), encoding="utf-8")
                 saved += 1
             except OSError as e:
                 self.statusbar.showMessage(f"Error saving {txt_path.name}: {e}", 5000)
@@ -2169,7 +2521,10 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         )
         if not path:
             return
-        Path(path).write_bytes(export_zip_from_results(self.results))
+        # Build ZIP using effective captions (prefix/postfix/initial applied)
+        pairs = [(r.caption_filename, self._effective_caption(r.caption)) for r in self.results]
+        from backend.tag_utils import export_zip
+        Path(path).write_bytes(export_zip(pairs))
         self.statusbar.showMessage(f"Saved zip to {path}")
 
 
@@ -2333,10 +2688,21 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
     # ==================================================================
 
 def main() -> None:
+    # Suppress the HuggingFace unauthenticated-request warning — it's noise
+    # for end users who don't have an HF_TOKEN set.
+    import os
+    os.environ.setdefault("HF_HUB_DISABLE_IMPLICIT_TOKEN", "1")
+    import warnings
+    warnings.filterwarnings(
+        "ignore",
+        message=".*unauthenticated.*",
+        category=UserWarning,
+    )
+
     app = QtWidgets.QApplication([])
     app.setApplicationName("Img-Tagboru")
     app.setApplicationDisplayName("Img-Tagboru")
-    app.setApplicationVersion("1.3.1")
+    app.setApplicationVersion("1.3.2")
 
     window = MainWindow()
     window.show()
