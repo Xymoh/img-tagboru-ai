@@ -2,6 +2,47 @@
 
 All notable changes to Img-Tagboru are documented in this file.
 
+## [v1.3.2] — 2026-05-15
+
+### Added
+
+#### Description Tagger — Structured Category Prompting
+- **Structured category checklist** in the system prompt forces the LLM to cover every visual dimension: `[PARTICIPANTS]` `[HAIR]` `[EYES]` `[CLOTHING]` `[ACCESSORIES]` `[BODY]` `[POSE]` `[EXPRESSION]` `[SETTING]` `[LIGHTING]` `[ATMOSPHERE]` `[FRAMING]` `[QUALITY]`. Creative/Mature also get `[NSFW]`. This is the single biggest quality improvement — output now matches real Danbooru post density (30-50+ tags).
+- **Danbooru-density few-shot examples** — all three mode pools replaced with 30-45 tag examples that demonstrate the specificity level expected (e.g. `black_shirt, t-shirt, long_sleeves, miniskirt, pleated_skirt, boots, black_boots, knee_boots, arm_warmers, black_arm_warmers, nail_polish, x_hair_ornament, hair_over_one_eye, twintails, sidelocks, red_background`).
+- **Archetype-specific clothing backfill pools** — when the LLM under-delivers, the backfill now pulls from archetype-specific clothing/accessory lists: emo/goth → `black_shirt, arm_warmers, knee_boots, studded_belt`; school → `serafuku, kneehighs, loafers, hair_ribbon`; elf/archer → `bow_(weapon), quiver, cape, leather, gauntlets`; bikini/beach → `barefoot, sand, side-tie_bikini_bottom, tan`.
+- **Expanded concept expansion map** — 30+ new entries covering subcultures (`emo`, `goth`, `punk`), relationships (`couple`, `lovers`, `romantic`), outdoor settings (`lake`, `river`, `ocean`, `sea`, `mountain`, `field`, `meadow`, `garden`, `rooftop`, `city`, `street`), weather/time (`rain`, `snow`, `sunset`, `night`, `winter`, `summer`, `spring`, `autumn`), and activities (`swimming`, `swimsuit`, `bikini`, `festival`, `wedding`).
+- **Expanded literal tag map** — 25+ new phrase→tag mappings: `bikini`, `swimsuit`, `one-piece`, `school uniform`, `emo`, `goth`, `punk`, and all major settings (`lake`, `river`, `ocean`, `beach`, `forest`, `park`, `bedroom`, `kitchen`, `library`, `classroom`, `rooftop`, `alley`, `cathedral`, `church`).
+- **Mature wildcard injection** (`_inject_mature_wildcards`) — on SFW descriptions in Mature mode, injects 2-3 tasteful suggestive tags from scene-aware pools (lake → `wet, wet_hair, bare_shoulders`; forest → `thighs, messy_hair`; bedroom → `bare_shoulders, dim_lighting`; generic → `cleavage, bedroom_eyes, parted_lips`).
+- **Expanded universal tag set** — added hair styles (`ponytail, twintails, braid, bangs, messy_hair, wavy_hair`), skin/body details (`thighs, legs, bare_shoulders, collarbone, navel, midriff, cleavage, wet, wet_hair, sweat`), accessories (`choker, necklace, earrings, ring, bracelet, ribbon, piercing`), and atmosphere (`golden_hour, ambient_light, scenery, cinematic_lighting`).
+
+#### Tag Enrichment
+- **Tag Enrichment mode** — paste seed tags like `1girl, witch_hat, forest, broom, night` and the AI expands them into a full 30-50 tag set with complementary clothing, atmosphere, lighting, and detail tags.
+- Input mode toggle (`📝 From Description` / `🏷️ From Seed Tags`) in the Description Tagger tab.
+- Three enrichment few-shot example sets (safe, creative, mature) with Danbooru-density outputs.
+- `DescriptionTagWorker` `enrich_mode` flag routes to `tagger.enrich_tags()`.
+
+#### Infrastructure
+- **Comprehensive README** — complete rewrite covering all features, Description Tagger deep-dive with example output, mode comparison table, writing tips, full post-processing pipeline explanation, model recommendations with tested benchmarks, project structure, FastAPI docs, and training tips.
+- **`start-ui.bat` fallback chain** — fixes silent failure when `.venv` is not at the project root. Now tries: (1) `.venv\Scripts\pythonw.exe`, (2) `pythonw` on PATH, (3) `python` on PATH, (4) clear error message with fix instructions. Works with conda, system Python, and differently-named venvs.
+
+### Changed
+
+#### Description Tagger
+- **Mode-specific framing** in system prompt: Safe = "stay literal", Creative = "TURN THE DESCRIPTION INTO A RICH, IMAGE-READY PROMPT — be generous", Mature = "expand like Creative AND add suggestive flair".
+- **Target tag counts raised**: Safe 35, Creative 50, Mature 50 (was 18/30/35). `num_predict` budgets raised to 500/700/800 tokens.
+- **`min_accept` now checks LLM-produced tags** (before backfill) — prevents sparse LLM output padded by backfill from passing the retry threshold. Retries now actually fire when the model under-delivers.
+- **Backfill fill ratio** raised to 80% of target for Creative/Mature (was 75%).
+- **Safe mode gate** — all modes now use `min_score >= 1` (universal atmosphere tags pass). Safe mode's SFW guarantee is enforced by a dedicated suggestive-tag blocklist (`cleavage, navel, thighs, bare_shoulders, seductive_smile, bedroom_eyes`, etc.) rather than a stricter gate score.
+- **`MAX_TAGS`** raised from 50 to 60.
+- Generation temperatures adjusted: Creative 0.75 (was 0.65), Mature 0.90 (was 1.05 — was too high, causing incoherence).
+- Enrichment mode temperatures: Mature 0.90 (was 1.05).
+
+### Fixed
+- Creative mode was producing the same sparse output as Safe because the system prompt said "Only add tags DIRECTLY implied" and "Limit output to the natural number of tags" — both instructions removed.
+- `fox_ears`/`fox_tail` hallucination on unrelated prompts reduced — animal-feature tags now require archetype support in the description.
+- NSFW few-shot example (`"a nun giving a blowjob"`) was leaking into the Creative pool for SFW inputs — Creative pool now contains only SFW examples.
+- Backfill was satisfying `min_accept` before the LLM had a chance to retry with richer output — fixed by checking raw LLM tag count, not post-backfill count.
+
 ## [Unreleased]
 
 ### Added
@@ -27,8 +68,6 @@ All notable changes to Img-Tagboru are documented in this file.
 ### Fixed
 - Franchise-name collisions were slipping through when tags shared a single token with the description. 2-token tags now require both tokens be supported; 3+ token tags require 75% of tokens supported.
 - NSFW descriptions like "Orc forcing elf to give him blowjob" no longer return zero tags — act expansions let anatomy pass the relevance gate in creative/mature modes.
-
-## [v1.3.2] — 2026-05-10
 
 ### Added
 - **Tag Enrichment** — expand a list of seed tags with complementary Danbooru tags from the LLM. Paste tags like `1girl, beach, volleyball` and the AI returns complementary tags (`towel, lying_on_towel, sunshine, dolphins`) that fit the scene.
