@@ -1,161 +1,292 @@
-# Local Anime Tagger
+# Img-Tagboru
 
-Local anime image captioning tool inspired by WD14 / OneTrainer workflows.
+A local, offline Danbooru-style image tagging tool for anime/illustration workflows. Tag images automatically with an ONNX vision model, or generate tags from text descriptions using a local LLM — no cloud APIs, no content restrictions, fully private.
 
-## What it does
+Built for LoRA trainers, dataset curators, and anyone who needs clean Danbooru-format captions.
 
-- Drops in one or more images.
-- Returns Danbooru-style tags with confidence scores.
-- Lets you edit, sort, filter, and copy tags before export.
-- Exports one `.txt` caption file per image.
-- Supports batch processing from a local folder.
-- Runs locally on Windows and uses GPU automatically if `onnxruntime-gpu` is installed and CUDA is available.
-- **NEW:** Generate Danbooru tags from text descriptions using local LLM (Ollama) — no restricted keywords, fully unrestricted.
+---
 
-## Features
+## Features at a Glance
 
-### Image-to-Tags
-- Load images via file picker, folder, drag-and-drop, or paste from clipboard
-- ONNX-based WD-SwinV2 tagger with category-specific confidence thresholds
-- MCut thresholding for automatic cutoff detection
-- Tag filtering (blacklist/whitelist)
-- Batch processing with progress tracking
+| Feature | What it does |
+|---------|-------------|
+| **Image → Tags** | Drop images in, get Danbooru tags with confidence scores |
+| **Description → Tags** | Describe a scene in English, get 30-50 Danbooru tags |
+| **Tag Enrichment** | Provide seed tags, get them expanded into a full tag set |
+| **Batch Processing** | Tag entire folders at once |
+| **Caption Editor** | Edit, reorder, filter, blacklist/whitelist tags |
+| **Export** | Save `.txt` captions per image, or export as ZIP |
 
-### Description-to-Tags
-- Describe a scene in English — AI generates Danbooru-style tags from your description
-- 3 creativity modes: Safe (SFW), Creative (mild NSFW), Mature (explicit NSFW)
-- No API calls, fully offline
-- Vocabulary-grounded prompting backed by `danbooru_tags_post_count.csv` (99,995 tags)
-- Multi-step post-processing: whitelist validation, relevance gate, concept/act expansions, semantic dedup, pose-conflict resolution
-- Uses Ollama + an abliterated Qwen3 model running locally
+---
 
-## PC Requirements for Description-to-Tags
+## Image-to-Tags
 
-The description-to-tags feature requires a local LLM running via **Ollama**:
+Uses an ONNX-based WD-SwinV2 tagger model to classify images into Danbooru tags with confidence scores.
 
-**Minimum Hardware:**
-- **RAM:** 16 GB (32 GB recommended)
-- **CPU:** Modern multi-core processor
-- **GPU:** NVIDIA/AMD with 16 GB VRAM recommended (8 GB workable with smaller models)
-- **Disk:** ~10 GB per model
+**Loading images:**
+- Drag & drop files or folders onto the app
+- Copy an image and paste with Ctrl+V
+- Copy an image URL and paste with Ctrl+V
+- Use the "Open Image" or "Open Folder" buttons
 
-**Setup:**
-1. Download and install **Ollama** from [ollama.ai](https://ollama.ai)
-2. Start Ollama: `ollama serve`
-3. Pull the recommended model: `ollama pull richardyoung/qwen3-14b-abliterated`
-4. First inference takes 30s-2min (model load); subsequent calls average ~4s per run
+**Tagging controls:**
+- **General Threshold** (0.25–0.40): Lower = more tags, may include false positives
+- **Character Threshold** (0.80–0.95): Higher = only confident character matches
+- **Max Tags**: Limit per image (40–80 typical for training)
+- **MCut**: Automatic threshold detection (overrides manual settings)
 
-The Description Tagger applies a deterministic post-processing pipeline (relevance gate, concept/act expansions, pose-conflict resolver) on top of the LLM output, so even with a small or occasionally-refusing model the results stay coherent. See the in-app Help dialog for model alternatives, test results, and tradeoffs.
+**Working with results:**
+- Uncheck tags in the Include column to exclude them
+- Reorder tags by rank (lower = appears first in caption)
+- Blacklist tags to always exclude (e.g. `blurry, lowres`)
+- Whitelist to only include specific tags
+- Supports regex patterns in blacklist/whitelist: `/^bad_/`
 
-**Note:** This feature is optional. Image-to-tags works without Ollama.
+**Exporting:**
+- Save Current TXT — caption for selected image
+- Save All TXT — all captions to a folder
+- Export ZIP — all captions in a ZIP archive
+- Format: `tag1, tag2, tag3` ready for training
 
-## Recommended stack
+---
 
-- Backend: Python + FastAPI + ONNX Runtime.
-- Frontend: PySide6 desktop app.
-- Model: `SmilingWolf/wd-swinv2-tagger-v3` from Hugging Face.
+## Description-to-Tags
 
-This repo is a standalone desktop application. The FastAPI backend (`backend/api.py`) is also available as an optional local API if you want to integrate a custom UI.
+Describe what you want to see in plain English. The AI generates a comprehensive Danbooru-style tag set — the kind you'd find on a real Danbooru/Gelbooru post with 30-50+ tags covering every visual element.
 
-## Project layout
+**Runs 100% locally** via Ollama. No API keys, no content filtering, no data leaves your machine.
 
-- `backend/` — tagger service, description tagger (LLM), tag index, and optional FastAPI.
-- `frontend/native/` — PySide6 desktop app (main entry point: `main_window.py`).
-- `scripts/` — batch test utilities.
-- `requirements.txt` — Python dependencies.
+### How It Works
 
-## Setup on Windows
+1. You write a description: `"a girl, emo, black hair"`
+2. The system builds a structured prompt that tells the LLM to cover specific visual categories
+3. The LLM generates tags validated against a 1M-entry Danbooru vocabulary
+4. A post-processing pipeline applies: relevance gating, concept expansion, semantic dedup, conflict resolution, and backfill
 
-1. Install Python 3.10+.
-2. Open PowerShell in this folder.
-3. Create and activate a virtual environment:
+### Example Output
+
+**Input:** `a girl, emo, black hair`
+
+**Creative mode output (39 tags):**
+```
+1girl, solo, long_hair, looking_at_viewer, open_mouth, simple_background, long_sleeves,
+black_hair, hair_ornament, standing, full_body, twintails, sidelocks, pleated_skirt, boots,
+choker, black_skirt, miniskirt, hair_over_one_eye, black_shirt, nail_polish, black_choker,
+black_boots, depth_of_field, x_hair_ornament, ear_piercing, t-shirt, red_background,
+messy_hair, knee_boots, pale_skin, eyeliner, arm_warmers, studded_belt, black_arm_warmers, ...
+```
+
+### Creativity Modes
+
+| Mode | Best For | Behavior |
+|------|----------|----------|
+| 🟢 **Safe** | SFW portraits, scenery, characters | Never outputs explicit tags. Strips sexual content even if described. Literal to the description with basic atmosphere. 20-35 tags. |
+| 🟡 **Creative** | Rich scene generation, atmosphere | Exhaustively tags every visual element — clothing items with colors, specific poses, accessories, lighting, composition. Stays SFW unless description is explicit. 35-50 tags. |
+| 🔴 **Mature** | NSFW, explicit content | Everything Creative does + suggestive/explicit tags. On SFW descriptions adds tasteful flair (cleavage, bare_shoulders, bedroom_eyes). On explicit descriptions includes full sexual vocabulary. 35-50 tags. |
+
+### Tag Enrichment Mode
+
+Already have some tags? Switch to enrichment mode and provide seed tags like `1girl, witch_hat, forest, broom, night`. The AI expands them into a full 30-50 tag set with complementary clothing, atmosphere, lighting, and detail tags.
+
+### Writing Better Descriptions
+
+The AI maps your words to tags across these dimensions:
+
+| Dimension | Good | Poor |
+|-----------|------|------|
+| **Subject** | "a knight", "two elves", "a catgirl" | "someone", "a character" |
+| **Action** | "baking cookies", "standing on a cliff" | "existing" |
+| **Setting** | "in a forest clearing", "dark cathedral" | (nothing) |
+| **Clothing** | "maid outfit", "bikini", "armor and cape" | (nothing) |
+| **Atmosphere** | "stormy night", "sunset", "candlelight" | (nothing) |
+
+**Tips:**
+- More detail = better output. `"a witch"` → generic. `"a witch flying through a dark storm"` → rich.
+- Name specific clothing/accessories if you want them tagged
+- Re-run for variety — temperature sampling means different runs produce different results
+- Creative mode is usually the best default for rich output
+
+### Post-Processing Pipeline
+
+The raw LLM output goes through a deterministic pipeline that ensures quality:
+
+1. **Vocabulary validation** — only tags that exist in the 1M-entry Danbooru CSV pass
+2. **Relevance gate** — scores each tag against the description; drops off-topic hallucinations
+3. **Safe mode filter** — hard-blocks explicit and suggestive tags in Safe mode
+4. **Concept expansion** — `"emo"` expands to allow `pale_skin, eyeliner, choker, studded_belt`
+5. **Act expansion** — `"blowjob"` permits `fellatio, penis, saliva, kneeling` (non-Safe only)
+6. **Mature wildcards** — injects 2-3 tasteful suggestive tags on SFW descriptions in Mature mode
+7. **Backfill** — if the LLM under-delivers, fills from archetype-specific clothing/detail pools
+8. **Semantic dedup** — collapses synonyms (`blowjob` → `fellatio`, `drooling` → `saliva`)
+9. **Conflict resolution** — mutual exclusion groups (can't be `standing` AND `sitting`)
+10. **Sort by popularity** — higher post_count tags appear first
+
+---
+
+## Setup
+
+### Requirements
+
+- **OS:** Windows 10/11 (primary), Linux/macOS should work but untested
+- **Python:** 3.10+
+- **RAM:** 8 GB minimum (16 GB+ for Description Tagger)
+- **GPU:** Optional for image tagging (NVIDIA/AMD). Recommended for Description Tagger (16 GB VRAM)
+- **Disk:** ~5 GB for image tagger models, ~10 GB per LLM model
+
+### Installation
 
 ```powershell
+# Clone the repo
+git clone https://github.com/your-repo/img-tagger.git
+cd img-tagger
+
+# Create virtual environment
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-```
 
-4. Install dependencies:
-
-```powershell
+# Install dependencies
 pip install -r requirements.txt
-```
 
-5. If you want GPU support, replace CPU runtime with the GPU build:
-
-```powershell
+# Optional: GPU support for image tagging
 pip uninstall -y onnxruntime
 pip install onnxruntime-gpu
 ```
 
-6. Start the UI:
+### Running the App
 
+```powershell
+python run.py
+```
+
+Or directly:
 ```powershell
 python frontend/native/main_window.py
 ```
 
-Optional: start the API server in another terminal.
+### Description Tagger Setup (Optional)
 
-```powershell
-.\.venv\Scripts\python.exe -m uvicorn backend.api:app --host 127.0.0.1 --port 8000 --reload
+The description-to-tags feature requires Ollama running locally:
+
+1. **Install Ollama** from [ollama.ai](https://ollama.ai)
+2. **Start Ollama:** `ollama serve`
+3. **Pull the model:** `ollama pull richardyoung/qwen3-14b-abliterated`
+4. **Verify GPU:** `ollama ps` (should show "GPU loaded")
+
+First inference takes 30s–2min (model loading). Subsequent runs average ~4s.
+
+> **Note:** The Description Tagger is optional. Image-to-tags works without Ollama.
+
+---
+
+## Recommended LLM Models
+
+### Primary (Tested & Verified)
+
+| Model | Size | VRAM | Speed | Quality |
+|-------|------|------|-------|---------|
+| **richardyoung/qwen3-14b-abliterated** | 14B (~9 GB) | 16 GB | ~4s/run | ⭐⭐⭐⭐⭐ |
+
+```
+ollama pull richardyoung/qwen3-14b-abliterated
 ```
 
-If `uvicorn` is not recognized, use the venv Python module form above instead of the bare command.
+This is the default and recommended model. Abliterated (uncensored) Qwen3-14B with `/no_think` support that skips reasoning tokens for fast, clean tag output.
 
-## Build a Windows exe
+### Alternative (Lighter)
 
-This project can be packaged as a standalone Windows desktop exe.
+| Model | Size | VRAM | Speed | Best For |
+|-------|------|------|-------|----------|
+| **goonsai/qwen2.5-3B-goonsai-nsfw-100k** | 3B (~2 GB) | 4 GB | ~7s/run | Quick iterations, low VRAM |
 
-1. Install the dependencies in your virtual environment.
-2. Run the build script:
+```
+ollama pull goonsai/qwen2.5-3B-goonsai-nsfw-100k
+```
+
+Purpose-built for image prompts. Thinner atmospheric coverage but good for rapid re-runs.
+
+### Not Recommended
+
+- **huihui_ai/qwen3-abliterated:30b-a3b-q4_K_M** — Thinking-mode variant. Reasoning tokens consume the generation budget, produces empty output.
+- Any Qwen3 variant without `instruct-2507` in the name (thinking mode wastes tokens)
+
+### Untested (May Work)
+
+- `huihui_ai/qwen3-abliterated:30b-a3b-instruct-2507-q4_K_M` — Non-thinking MoE, ~18 GB
+- `huihui_ai/qwen2.5-abliterate:14b-instruct-q4_K_M` — Qwen2.5, no thinking mode
+- `Fermi/Cydonia-24B-v4.3-heretic-vision:Q4_K_M` — Dense 24B, uncensored creative
+
+---
+
+## Building a Windows Executable
 
 ```powershell
 .\build_exe.ps1
 ```
 
-3. The packaged app will be written to `dist\Img-Tagboru.exe`.
+Output: `dist\Img-Tagboru.exe`
 
-GitHub Releases are also supported: push a tag like `v1.0.0` and the Windows build workflow will publish `dist\Img-Tagboru.exe` as a release asset.
+GitHub Releases: push a tag like `v1.0.0` and the CI workflow publishes the exe as a release asset.
 
 Notes:
+- First run still downloads model files to the user's cache
+- Windows Defender/SmartScreen warnings are normal for unsigned builds
 
-- The exe launches the native PySide6 desktop app.
-- The first run still downloads the model files to the user's cache folder.
-- If Windows Defender or SmartScreen warns about the exe, that is normal for unsigned local builds.
+---
 
-## FastAPI Endpoints
+## Project Structure
 
-Start the API server:
+```
+img-tagger/
+├── backend/
+│   ├── api.py                  # Optional FastAPI server
+│   ├── tagger.py               # ONNX image tagger
+│   ├── description_tagger.py   # LLM description-to-tags engine
+│   ├── tag_index.py            # Danbooru vocabulary index (1M tags)
+│   └── tag_utils.py            # Tag manipulation utilities
+├── frontend/
+│   └── native/
+│       ├── main_window.py      # PySide6 desktop app (entry point)
+│       ├── widgets.py          # UI components, Help dialog
+│       ├── workers.py          # Background threads for LLM/image ops
+│       ├── completer.py        # Tag autocomplete
+│       └── styles.py           # UI stylesheet
+├── danbooru_tags_post_count.csv  # 1M Danbooru tags with post counts
+├── requirements.txt
+├── run.py                      # App launcher
+└── build_exe.ps1               # Windows exe build script
+```
+
+---
+
+## FastAPI Server (Optional)
+
+For custom UI integration, the backend is also available as a REST API:
 
 ```powershell
 python -m uvicorn backend.api:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-### `GET /health`
+### Endpoints
 
-Returns a simple health-check response. Useful for monitoring and readiness probes.
-
-**Response** `200 OK`
+**`GET /health`** — Health check
 ```json
 {"status": "ok"}
 ```
 
-### `POST /tag`
+**`POST /tag`** — Tag a single image
 
-Tags a single image and returns Danbooru-style tags with confidence scores.
-
-**Request** — `multipart/form-data`
+Request: `multipart/form-data`
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `file` | file | *required* | Image file (PNG, JPG, WebP, BMP, GIF) |
-| `general_threshold` | float | `0.35` | Minimum confidence for general tags (0.0–1.0) |
-| `character_threshold` | float | `0.85` | Minimum confidence for character tags (0.0–1.0) |
-| `normalize_pixels` | bool | `false` | Normalize pixels to 0–1 range before inference |
-| `use_mcut` | bool | `false` | Use MCut automatic threshold detection |
-| `limit` | int | `80` | Maximum number of tags to return (0 = unlimited) |
+| `file` | file | required | Image (PNG, JPG, WebP, BMP) |
+| `general_threshold` | float | 0.35 | Min confidence for general tags |
+| `character_threshold` | float | 0.85 | Min confidence for character tags |
+| `normalize_pixels` | bool | false | Normalize to 0–1 range |
+| `use_mcut` | bool | false | MCut auto-threshold |
+| `limit` | int | 80 | Max tags (0 = unlimited) |
 
-**Response** `200 OK`
+Response:
 ```json
 {
   "caption": "1girl, smile, blue_eyes, solo, ...",
@@ -166,32 +297,39 @@ Tags a single image and returns Danbooru-style tags with confidence scores.
 }
 ```
 
-**Category labels:** `general` (0), `artist` (1), `copyright` (3), `character` (4), `meta` (5).
+CORS enabled for `localhost:5173` (Vite dev server).
 
-### CORS
+---
 
-The API enables CORS for `http://localhost:5173` and `http://127.0.0.1:5173` (Vite dev server defaults). Configure additional origins in [`backend/api.py`](backend/api.py:19).
+## Technical Details
 
-### Connect to a Vite app
+### Image Tagger
+- Model: `SmilingWolf/wd-swinv2-tagger-v3` (Hugging Face)
+- Runtime: ONNX (CPU or GPU)
+- Categories: general (0), artist (1), copyright (3), character (4), meta (5)
 
-Example fetch from a Vite frontend:
+### Description Tagger
+- LLM: Ollama + abliterated Qwen3-14B (local, offline)
+- Vocabulary: `danbooru_tags_post_count.csv` — 1,000,000 tags with post counts
+- Post-count threshold: 500 (configurable) — tags below this are filtered out
+- Structured category prompting forces coverage of: participants, hair, eyes, clothing, accessories, body, pose, expression, setting, lighting, atmosphere, framing, quality
+- Concept expansion maps: 60+ archetypes/settings with associated tag pools
+- Act expansion maps: 40+ NSFW keywords with anatomy/position/reaction tags
+- Semantic dedup: 15 synonym groups collapsed to canonical forms
+- Conflict groups: 6 mutual-exclusion sets (pose, viewpoint, framing, mouth, time, weather)
 
-```ts
-const formData = new FormData();
-formData.append('file', file);
-formData.append('general_threshold', '0.35');
+---
 
-const response = await fetch('http://127.0.0.1:8000/tag', {
-  method: 'POST',
-  body: formData,
-});
+## Tips for Best Results
 
-const result = await response.json();
-// result.caption → "1girl, smile, blue_eyes, ..."
-// result.tags → [{tag, confidence, category, category_label}, ...]
-```
-## Notes
+- **For training data:** Use image tagger with threshold 0.30–0.35, max 60–80 tags
+- **For prompt generation:** Use description tagger in Creative mode for rich, specific tags
+- **Blacklist common noise:** `blurry, lowres, bad_id, bad_pixiv_id, commentary_request`
+- **Re-run descriptions:** Temperature sampling means each run is different — try 2-3 times
+- **Combine both:** Tag an image first, then use those tags as seeds in enrichment mode
 
-- The model downloads on first run and is cached locally.
-- The UI includes a caption editor, category filtering, blacklist/whitelist fields, batch folder processing, category-specific thresholds, optional MCut thresholding, and export to a zip or a local output folder.
-- If captions look off, try toggling the pixel normalization option in the sidebar. Some ONNX tagger exports behave better with raw 0-255 pixels and others with 0-1 normalized pixels.
+---
+
+## License
+
+See repository for license details.
