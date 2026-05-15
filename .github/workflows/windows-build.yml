@@ -48,3 +48,48 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/Img-Tagboru.exe
+          body: |
+            ## What's New in v1.3.2
+
+            ### 🏷️ Description Tagger — Major Quality Overhaul
+
+            **Structured category prompting** — the LLM now fills 13 explicit visual slots instead of free-generating. Output now matches real Danbooru post density at **30-50+ tags** per run.
+
+            Categories covered: `[PARTICIPANTS]` `[HAIR]` `[EYES]` `[CLOTHING]` `[ACCESSORIES]` `[BODY]` `[POSE]` `[EXPRESSION]` `[SETTING]` `[LIGHTING]` `[ATMOSPHERE]` `[FRAMING]` `[QUALITY]` + `[NSFW]` in Mature mode.
+
+            **Example** — input: `a girl, emo, black hair`
+            ```
+            1girl, solo, long_hair, looking_at_viewer, open_mouth, simple_background,
+            long_sleeves, black_hair, hair_ornament, standing, full_body, twintails,
+            sidelocks, pleated_skirt, boots, choker, black_skirt, miniskirt,
+            hair_over_one_eye, black_shirt, nail_polish, black_choker, black_boots,
+            x_hair_ornament, ear_piercing, t-shirt, red_background, messy_hair,
+            knee_boots, pale_skin, eyeliner, arm_warmers, studded_belt, black_arm_warmers, ...
+            ```
+
+            **Other Description Tagger improvements:**
+            - Danbooru-density few-shot examples (30-45 tags each) replacing the old sparse ones
+            - Archetype-specific clothing backfill: emo/goth → `black_shirt, arm_warmers, knee_boots`; elf/archer → `bow_(weapon), quiver, cape`; school → `serafuku, kneehighs, loafers`
+            - 30+ new concept expansions: subcultures (`emo`, `goth`, `punk`), settings (`lake`, `river`, `ocean`, `mountain`, `rooftop`), weather/time (`rain`, `snow`, `sunset`, `winter`, `summer`)
+            - Mature wildcard injection — tasteful suggestive flair on SFW descriptions in Mature mode
+            - Retry logic fix — retries now actually fire when the model under-delivers
+            - Target tag counts raised: Safe 35, Creative 50, Mature 50
+
+            ### 🌱 Tag Enrichment Mode
+
+            New input mode in the Description Tagger tab. Paste existing seed tags and the AI expands them into a full complementary tag set.
+
+            Toggle between `📝 From Description` and `🏷️ From Seed Tags` in the UI.
+
+            ### 📖 README
+
+            Complete rewrite — covers all features, Description Tagger deep-dive with example output, mode comparison, writing tips, full post-processing pipeline, model recommendations with benchmarks, and training tips.
+
+            ### 🔧 Fixes
+
+            - `start-ui.bat` now falls back gracefully if `.venv` is not at the project root — works with conda, system Python, and differently-named venvs
+            - GitHub Actions workflow artifact path fixed (`Img-Tagboru.exe` was `img-tagger.exe` — release asset upload was silently failing)
+
+            ---
+
+            **Recommended model:** `ollama pull richardyoung/qwen3-14b-abliterated` (~9 GB, ~4s/run)
