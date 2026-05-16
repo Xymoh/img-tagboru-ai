@@ -6,29 +6,25 @@
 - 
 
 ## Dependencies Added/Updated
-<!-- List any new or updated dependencies (name + version + reason). -->
-- [ ] No dependency changes
-- 
+<!-- List any new or updated dependencies (name + version + reason). REMOVE IF UNUSED -->
+- [ ] Dependency 1...
+- [ ] 2...
 
 ## Testing Checklist
-<!-- Check all items you completed while testing this PR. -->
-- [ ] Existing automated tests pass (if applicable)
-- [ ] New/updated tests added for changed behavior (if applicable)
-- [ ] Manual testing completed for changed flows
-- [ ] Edge cases validated
-- [ ] No regressions observed in related areas
-- [ ] Project-specific checklist completed (if applicable)
-- [ ] Not applicable (explain below)
+<!-- Check all items you completed while testing this PR. REMOVE IF UNUSED -->
+- [ ] 1st thing to check...
+- [ ] 2nd..
+- [ ] 3rd..
 
 ## Breaking Changes
 - [ ] None
-<!-- If yes, describe what breaks and migration steps. -->
+<!-- If yes, describe what breaks and migration steps. REMOVE IF UNUSED -->
 
 ## Related Issues
-<!-- Link issues (e.g. Fixes #123, Closes #456). -->
+<!-- Link issues (e.g. Fixes #123, Closes #456). REMOVE IF UNUSED -->
 
 ## Screenshots / Recordings (if UI changes)
-<!-- Add before/after screenshots or short recordings for UI/UX changes. -->
+<!-- Add before/after screenshots or short recordings for UI/UX changes. REMOVE IF UNUSED -->
 
 ## Other / Notes
-<!-- Any extra context, caveats, rollout notes, or follow-ups for reviewers. -->
+<!-- Any extra context, caveats, rollout notes, or follow-ups for reviewers. REMOVE IF UNUSED -->
