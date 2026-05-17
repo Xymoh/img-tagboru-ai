@@ -51,7 +51,7 @@ from frontend.native.workers import DescriptionTagWorker, ImageLoadWorker, Model
 class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Img-Tagboru v1.3.2")
+        self.setWindowTitle("Img-Tagboru v1.3.3")
         self.resize(1500, 920)
         self.setMinimumSize(1200, 720)
         self.setAcceptDrops(True)
@@ -802,6 +802,27 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         self.help_btn.clicked.connect(self.show_help)
         self.statusbar.addPermanentWidget(self.help_btn)
 
+        self.kofi_btn = QtWidgets.QPushButton("☕ Support")
+        self.kofi_btn.setMaximumHeight(25)
+        self.kofi_btn.setToolTip("Support development on Ko-fi")
+        self.kofi_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ff5e5b;
+                color: #ffffff;
+                border: 1px solid #ff5e5b;
+                border-radius: 3px;
+                padding: 2px 8px;
+                font-size: 10px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #ff7875;
+                border: 1px solid #ffffff;
+            }
+        """)
+        self.kofi_btn.clicked.connect(self._open_kofi)
+        self.statusbar.addPermanentWidget(self.kofi_btn)
+
         self.progress = QtWidgets.QProgressBar()
         self.progress.setVisible(False)
         self.progress.setMaximumWidth(250)
@@ -904,11 +925,17 @@ class MainWindow(QtWidgets.QMainWindow, CaptionCompleterMixin):
         dialog = HelpDialog(self)
         dialog.exec()
 
+    def _open_kofi(self) -> None:
+        """Open the Ko-fi donation page in the default browser."""
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+        QDesktopServices.openUrl(QUrl("https://ko-fi.com/saekimon"))
+
     def show_about(self) -> None:
         QtWidgets.QMessageBox.about(
             self,
             "About Img-Tagboru",
-            "Img-Tagboru v1.3.2\n\n"
+            "Img-Tagboru v1.3.3\n\n"
             "Local Anime Image Tagger\n"
             "WD14-style tagging for anime images and LoRA training.\n\n"
             "Features:\n"
@@ -2702,7 +2729,7 @@ def main() -> None:
     app = QtWidgets.QApplication([])
     app.setApplicationName("Img-Tagboru")
     app.setApplicationDisplayName("Img-Tagboru")
-    app.setApplicationVersion("1.3.2")
+    app.setApplicationVersion("1.3.3")
 
     window = MainWindow()
     window.show()

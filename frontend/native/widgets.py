@@ -311,6 +311,18 @@ class HelpDialog(QtWidgets.QDialog):
         </p>
 
         <hr style="border: 1px solid #444;">
+        <div style="text-align: center; margin: 12px 0;">
+            <p style="color: #ff5e5b; font-size: 13px; font-weight: bold;">☕ Enjoy this tool? Support development!</p>
+            <p style="font-size: 12px;">
+                <a href="https://ko-fi.com/saekimon" style="color: #ff5e5b; font-size: 14px; font-weight: bold; text-decoration: none;">
+                    ☕ Buy me a coffee on Ko-fi
+                </a>
+            </p>
+            <p style="color: #888; font-size: 11px;">
+                Your support helps keep this project free, open-source, and actively maintained.
+            </p>
+        </div>
+        <hr style="border: 1px solid #444;">
         <p style="color: #9ecbff; font-size: 11px;">
             Need help? Check the
             <a href="https://github.com/your-repo/img-tagger" style="color: #4da6ff;">GitHub repository</a>
