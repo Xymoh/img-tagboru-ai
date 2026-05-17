@@ -1,5 +1,7 @@
 # Img-Tagboru
 
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20Development-ff5e5b?logo=ko-fi&logoColor=white)](https://ko-fi.com/saekimon)
+
 A local, offline Danbooru-style image tagging tool for anime/illustration workflows. Tag images automatically with an ONNX vision model, or generate tags from text descriptions using a local LLM — no cloud APIs, no content restrictions, fully private.
 
 Built for LoRA trainers, dataset curators, and anyone who needs clean Danbooru-format captions.
@@ -327,6 +329,16 @@ CORS enabled for `localhost:5173` (Vite dev server).
 - **Blacklist common noise:** `blurry, lowres, bad_id, bad_pixiv_id, commentary_request`
 - **Re-run descriptions:** Temperature sampling means each run is different — try 2-3 times
 - **Combine both:** Tag an image first, then use those tags as seeds in enrichment mode
+
+---
+
+## Support the Project
+
+If you find Img-Tagboru useful, consider supporting development:
+
+[![Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/saekimon)
+
+Your support helps keep this project free, open-source, and actively maintained.
 
 ---
 
