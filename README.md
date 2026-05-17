@@ -344,4 +344,4 @@ Your support helps keep this project free, open-source, and actively maintained.
 
 ## License
 
-See repository for license details.
+MIT License — see [LICENSE](LICENSE) for details.
